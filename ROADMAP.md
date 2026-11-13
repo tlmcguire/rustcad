@@ -15,7 +15,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] T001 Reference kernel for analytic boxes (test double)
 - [x] T002 Golden geometry harness
 - [x] T003 OCCT build and minimal binding spike
-- [ ] T004 Worker process spike with latency numbers
+- [x] T004 Worker process spike with latency numbers
 - [x] T005 wgpu viewport and ID-buffer picking spike
 - [x] T006 Topological naming spike
 - [ ] Headless renderer and snapshot gate

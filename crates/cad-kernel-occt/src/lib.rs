@@ -22,6 +22,8 @@ mod unavailable;
 #[cfg(not(occt))]
 pub use unavailable::OcctKernel;
 
+pub mod worker;
+
 /// True when this build is linked to OpenCascade.
 #[must_use]
 pub const fn available() -> bool {

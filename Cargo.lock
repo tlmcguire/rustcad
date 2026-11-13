@@ -222,6 +222,8 @@ name = "cad-kernel-occt"
 version = "0.0.0"
 dependencies = [
  "cad-kernel",
+ "cad-math",
+ "cc",
 ]
 
 [[package]]
@@ -283,6 +285,7 @@ version = "0.0.0"
 dependencies = [
  "cad-commands",
  "cad-kernel",
+ "cad-kernel-occt",
  "cad-math",
  "cad-render",
 ]

@@ -14,7 +14,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [ ] Verify the items in `docs/PLAN.md`, section 17.3
 - [x] T001 Reference kernel for analytic boxes (test double)
 - [x] T002 Golden geometry harness
-- [ ] T003 OCCT build and minimal binding spike
+- [x] T003 OCCT build and minimal binding spike
 - [ ] T004 Worker process spike with latency numbers
 - [x] T005 wgpu viewport and ID-buffer picking spike
 - [ ] T006 Topological naming spike

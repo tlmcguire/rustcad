@@ -1,0 +1,10 @@
+# The 40 x 20 x 10 box at the origin, minus a box with one corner at (10, 5, 5) and
+# size 20 x 10 x 10. The tool sticks out of the top, so the result is the box with a
+# 20 x 10 pocket, 5 deep, in its top face.
+volume     = 7000
+area       = 3100
+bbox_min   = 0 0 0
+bbox_max   = 40 20 10
+face_count = 11
+tolerance  = 1e-6
+source     = analytic: V = 8000 - 20*10*5; A = 2800 + 2*(20 + 10)*5 (pocket walls; the floor replaces the top area removed); faces = 6 + 4 walls + 1 floor

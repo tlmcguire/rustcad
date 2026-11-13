@@ -1,0 +1,13 @@
+[package]
+name = "cad-kernel-rs"
+description = "Experimental pure Rust backend for the Kernel trait."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-kernel = { path = "../cad-kernel" }
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "cad-kernel-occt"
+description = "OpenCascade backend for the Kernel trait. The only crate allowed to use unsafe."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-kernel = { path = "../cad-kernel" }
+
+[lints]
+workspace = true

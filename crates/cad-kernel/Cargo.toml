@@ -1,0 +1,13 @@
+[package]
+name = "cad-kernel"
+description = "Kernel trait, shape handles, tessellation types."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-math = { path = "../cad-math" }
+
+[lints]
+workspace = true

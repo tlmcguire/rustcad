@@ -1,0 +1,13 @@
+[package]
+name = "cad-sketch"
+description = "Sketch entities, constraints, and the Solver trait."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-math = { path = "../cad-math" }
+
+[lints]
+workspace = true

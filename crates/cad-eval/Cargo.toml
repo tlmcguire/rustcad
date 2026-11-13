@@ -1,0 +1,13 @@
+[package]
+name = "cad-eval"
+description = "Incremental parallel rebuild of the feature graph."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-doc = { path = "../cad-doc" }
+
+[lints]
+workspace = true

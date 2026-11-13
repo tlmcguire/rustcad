@@ -1,0 +1,14 @@
+[package]
+name = "cad-mcp"
+description = "MCP server generated from the command registry."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-commands = { path = "../cad-commands" }
+cad-render = { path = "../cad-render" }
+
+[lints]
+workspace = true

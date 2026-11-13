@@ -1,0 +1,13 @@
+[package]
+name = "cad-query"
+description = "Geometry queries and selection by description."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-doc = { path = "../cad-doc" }
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "cad-render"
+description = "wgpu renderer, picking, offscreen rendering."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-kernel = { path = "../cad-kernel" }
+
+[lints]
+workspace = true

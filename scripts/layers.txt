@@ -1,0 +1,8 @@
+# Allowed dependency layers. A crate may depend only on crates in a LOWER layer.
+# Protected path: loop agents may not edit this file.
+0 cad-math
+1 cad-kernel cad-sketch
+2 cad-kernel-occt cad-kernel-rs cad-doc cad-render
+3 cad-eval cad-query cad-io
+4 cad-commands
+5 cad-ui cad-plugin cad-mcp cad-cli cad-testkit

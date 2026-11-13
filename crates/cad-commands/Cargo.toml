@@ -1,0 +1,16 @@
+[package]
+name = "cad-commands"
+description = "Typed command registry. The single entry point for all edits."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-doc = { path = "../cad-doc" }
+cad-eval = { path = "../cad-eval" }
+cad-query = { path = "../cad-query" }
+cad-io = { path = "../cad-io" }
+
+[lints]
+workspace = true

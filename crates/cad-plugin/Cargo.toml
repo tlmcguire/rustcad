@@ -1,0 +1,13 @@
+[package]
+name = "cad-plugin"
+description = "WASM plugin host and capability checks."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-commands = { path = "../cad-commands" }
+
+[lints]
+workspace = true

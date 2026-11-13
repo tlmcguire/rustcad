@@ -1,0 +1,13 @@
+[package]
+name = "cad-cli"
+description = "Headless runner for tests, batch export, and agents."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cad-commands = { path = "../cad-commands" }
+
+[lints]
+workspace = true

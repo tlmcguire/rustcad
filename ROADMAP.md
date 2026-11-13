@@ -12,7 +12,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] `cad-kernel`: Phase 0 `Kernel` trait and `HistoryMap` types
 - [ ] Add `LICENSE-APACHE`
 - [ ] Verify the items in `docs/PLAN.md`, section 17.3
-- [ ] T001 Reference kernel for analytic boxes (test double)
+- [x] T001 Reference kernel for analytic boxes (test double)
 - [ ] T002 Golden geometry harness
 - [ ] T003 OCCT build and minimal binding spike
 - [ ] T004 Worker process spike with latency numbers

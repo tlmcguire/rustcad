@@ -107,6 +107,8 @@ name = "cad-testkit"
 version = "0.0.0"
 dependencies = [
  "cad-commands",
+ "cad-kernel",
+ "cad-math",
  "cad-render",
 ]
 

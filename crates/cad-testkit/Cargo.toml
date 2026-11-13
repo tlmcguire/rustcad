@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 cad-commands = { path = "../cad-commands" }
+cad-kernel = { path = "../cad-kernel" }
+cad-math = { path = "../cad-math" }
 cad-render = { path = "../cad-render" }
 
 [lints]

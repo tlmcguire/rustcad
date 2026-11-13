@@ -7,7 +7,15 @@ license.workspace = true
 publish = false
 
 [dependencies]
-cad-kernel = { path = "../cad-kernel" }
+bytemuck = "1"
+cad-kernel = { version = "0.0.0", path = "../cad-kernel" }
+cad-math = { version = "0.0.0", path = "../cad-math" }
+png = "0.18"
+pollster = "1"
+wgpu = "30"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }

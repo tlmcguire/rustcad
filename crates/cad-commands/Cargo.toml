@@ -7,10 +7,10 @@ license.workspace = true
 publish = false
 
 [dependencies]
-cad-doc = { path = "../cad-doc" }
-cad-eval = { path = "../cad-eval" }
-cad-query = { path = "../cad-query" }
-cad-io = { path = "../cad-io" }
+cad-doc = { version = "0.0.0", path = "../cad-doc" }
+cad-eval = { version = "0.0.0", path = "../cad-eval" }
+cad-query = { version = "0.0.0", path = "../cad-query" }
+cad-io = { version = "0.0.0", path = "../cad-io" }
 
 [lints]
 workspace = true

@@ -7,7 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-cad-doc = { path = "../cad-doc" }
+cad-doc = { version = "0.0.0", path = "../cad-doc" }
 
 [lints]
 workspace = true

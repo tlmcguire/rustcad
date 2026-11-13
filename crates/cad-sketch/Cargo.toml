@@ -7,7 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-cad-math = { path = "../cad-math" }
+cad-math = { version = "0.0.0", path = "../cad-math" }
 
 [lints]
 workspace = true

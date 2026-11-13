@@ -7,7 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-cad-kernel = { path = "../cad-kernel" }
+cad-kernel = { version = "0.0.0", path = "../cad-kernel" }
 
 [lints]
 workspace = true

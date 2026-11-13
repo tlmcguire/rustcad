@@ -16,7 +16,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] T002 Golden geometry harness
 - [ ] T003 OCCT build and minimal binding spike
 - [ ] T004 Worker process spike with latency numbers
-- [ ] T005 wgpu viewport and ID-buffer picking spike
+- [x] T005 wgpu viewport and ID-buffer picking spike
 - [ ] T006 Topological naming spike
 - [ ] Headless renderer and snapshot gate
 - [ ] Determinism, performance, coverage, mutation, and API-diff gates

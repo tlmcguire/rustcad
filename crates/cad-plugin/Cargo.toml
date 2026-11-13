@@ -7,7 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-cad-commands = { path = "../cad-commands" }
+cad-commands = { version = "0.0.0", path = "../cad-commands" }
 
 [lints]
 workspace = true

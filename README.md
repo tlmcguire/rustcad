@@ -1,130 +1,126 @@
-# RustCAD
+<h1 align="center">RustCAD</h1>
 
-Parametric CAD written in Rust to be intuitive, efficient, and powerful.
+<p align="center">
+  <strong>Shape parts by hand. Change your mind later.</strong><br>
+  A parametric CAD application for mechanical design, built in Rust.
+</p>
 
-RustCAD is a desktop app for mechanical part design. You shape parts by pushing and pulling
-geometry directly, and every step is recorded as an editable feature history, so a design
-stays changeable long after it is drawn.
+<p align="center">
+  <img src="docs/images/demo.png" alt="A block with a pocket, a slot, and a boss, modelled and rendered by RustCAD" width="720">
+</p>
 
-![A block with a pocket, a slot, and a boss, modelled and rendered by RustCAD](docs/images/demo.png)
+RustCAD pairs direct modelling with a full feature history. Push and pull geometry the way
+you would with clay, and every step stays recorded and editable, so a dimension chosen on
+day one can still be changed on day one hundred. It is meant to be easy to learn, quick
+under the hand, and deep enough for real engineering.
 
-*Modelled by the OpenCascade backend and rendered by the wgpu renderer:
-`cargo run -p cad-testkit --example demo`.*
+> **Status: early foundations.** The geometry kernel and the renderer work and are tested.
+> There is no application to use yet.
 
-## Status
+## Where it stands
 
-Early foundation work (Phase 0). **There is no usable application yet.** The geometry
-kernel and the renderer work and are tested; the document model, the UI, and the command
-line tool are not built.
-
-### What works today
-
-| Area | State |
+| | Today |
 |---|---|
-| Geometry kernel | OpenCascade 7.9.3 behind a `Kernel` trait: boxes, union, subtract, intersect, face counts, tessellation, mass properties. Booleans report what happened to every face. |
-| Rendering | wgpu renderer with shaded faces and edges, in a window or offscreen to PNG. About 2 ms per frame for one million triangles on an Apple M2. |
-| Picking | Click a pixel, get the face under it, through a GPU ID buffer. |
-| Stable face names | Faces are named by the feature that made them, so references survive edits to earlier steps. A spike, with one known flaw documented. |
-| Testing | A golden-file harness that checks any kernel against expected volume, area, bounding box, and face count. A box-only reference kernel for tests. |
-| Quality gates | One script runs formatting, build, tests, lints, crate layering, an `unsafe` check, and license and advisory checks. |
+| **Geometry** | OpenCascade 7.9.3 behind a `Kernel` trait: boxes, union, subtract, intersect, tessellation, mass properties. Every boolean reports what became of each face. |
+| **Rendering** | A wgpu renderer with shaded faces and edges, in a window or straight to PNG. About 2 ms per frame for a million triangles on an Apple M2. |
+| **Picking** | Click a pixel, get the face beneath it. |
+| **Naming** | Faces are named by the feature that made them, so references outlive edits to earlier steps. A spike, with one known flaw written up. |
+| **Testing** | Golden files check any kernel against expected volume, area, bounds, and face count. One script runs every merge gate. |
 
-Tested on macOS (Apple Silicon) only so far. Linux and Windows are intended but unverified.
+Verified on macOS with Apple Silicon. Linux and Windows are intended and not yet tested.
 
-### Not built yet
-
-Sketching, extrude and every other feature beyond boxes and booleans, the document model,
-undo, file formats, import and export, the user interface, the command line tool, the MCP
+Still to come before it is an application: sketching, features beyond boxes and booleans,
+the document model, undo, file formats, the interface, the command line tool, the agent
 server, and plugins. The kernel also runs in-process for now, so a crash inside it is not
 contained.
 
-## Planned features
+## Where it is going
 
 **Modelling**
-
-- Direct push and pull on top of a recorded, editable feature history
-- 2D sketcher with constraints and dimensions
-- Extrude, revolve, sweep, loft, fillet, chamfer, shell, draft, rib, holes, threads
+- Direct push and pull over a recorded, editable history
+- A constraint-based 2D sketcher
+- Extrude, revolve, sweep, loft, fillet, chamfer, shell, draft, rib, holes, and threads
 - Linear, circular, and mirror patterns
-- Named parameters and expressions with unit checking in every numeric field
-- Reference planes, axes, and points; multi-body parts; configurations
-- References that survive edits to earlier features, with no silent rebinding
+- Named parameters and unit-checked expressions in every numeric field
+- References that survive upstream edits, and never rebind silently
 
 **Interface**
-
-- A fast viewport with crisp edges, section views, and selection highlighting
-- An adaptive toolbar that shows the tools that fit the current selection
-- Command palette, inspector, history panel, and parameters panel
-- Measure tool and mass properties
+- A fast viewport with crisp edges, section views, and clear selection
+- A toolbar that adapts to what is selected
+- Command palette, inspector, history, and parameters panels
 
 **Files**
+- A native format with autosave and crash recovery
+- STEP, STL, and 3MF in and out
 
-- A native file format with autosave and crash recovery
-- STEP, STL, and 3MF import and export
+**Automation**
+- A built-in MCP server, so AI agents can drive every operation through typed, transactional tools
+- Sandboxed WebAssembly plugins with declared capabilities
+- A headless command line tool for batch work and export
 
-**Automation and extension**
-
-- A built-in MCP server, so AI agents can drive every modelling operation through typed,
-  transactional tools
-- Sandboxed WebAssembly plugins with declared capabilities and a versioned API
-- A headless command line tool for batch work, tests, and export
-
-**Later**
-
-- Assemblies with joints, interference checks, and exploded views
+**Further out**
+- Assemblies, joints, and interference checks
 - 2D drawings with PDF and DXF export
-- Surfacing tools and sheet metal
+- Surfacing and sheet metal
 
-Runs on Linux, macOS, and Windows, with no account and no network connection needed.
+Linux, macOS, and Windows. No account, no network connection.
 
-The order of work is in [ROADMAP.md](ROADMAP.md). The full design is in
+The order of work is in [ROADMAP.md](ROADMAP.md), and the full design in
 [docs/PLAN.md](docs/PLAN.md).
 
-## Building
+## Getting started
 
-You need a recent stable Rust toolchain.
+With a recent stable Rust toolchain:
 
-    cargo build --workspace
-    bash scripts/gates.sh     # everything that must pass before a merge
+```sh
+cargo build --workspace
+bash scripts/gates.sh        # everything that must pass before a merge
+```
 
-The OpenCascade backend is optional at build time. Without it the workspace still builds and
-its tests are skipped. To build it you need git, CMake, Ninja, and a C++17 compiler:
+The OpenCascade backend is optional. Without it the workspace still builds and its tests are
+skipped. To build it you need git, CMake, Ninja, and a C++17 compiler:
 
-    bash crates/cad-kernel-occt/native/build-occt.sh target/occt
+```sh
+bash crates/cad-kernel-occt/native/build-occt.sh target/occt
+```
 
-That fetches and builds a pinned OpenCascade release (about five minutes on an Apple M2).
-The next `cargo build` finds it in `target/occt/install`. Set `OCCT_ROOT` to use an install
-somewhere else.
+This fetches and builds a pinned OpenCascade release, about five minutes on an Apple M2.
+The next `cargo build` picks it up from `target/occt/install`; set `OCCT_ROOT` to point
+elsewhere.
 
-## Trying it
+### See it run
 
-    # Model a part with OpenCascade and render it to a PNG (needs the backend above)
-    cargo run -p cad-testkit --example demo -- part.png
+```sh
+# Model a part with OpenCascade and render it to a PNG (needs the backend)
+cargo run -p cad-testkit --example demo -- part.png
 
-    # Open a window with an orbiting box; click a face to print its index
-    cargo run -p cad-render --example viewport
+# An orbiting box in a window; click a face to print its index
+cargo run -p cad-render --example viewport
 
-    # Render a box to a PNG without a window
-    cargo run -p cad-render --example snapshot -- box.png
+# A box rendered to a PNG, no window
+cargo run -p cad-render --example snapshot -- box.png
 
-    # Time a one-million-triangle mesh
-    cargo run --release -p cad-render --example bench
+# Frame time for a million triangles
+cargo run --release -p cad-render --example bench
+```
 
-## Repository
+## Inside the repository
 
-| Path | Contents |
+| Path | |
 |---|---|
-| `crates/` | The workspace. Each crate has one job and may depend only on lower layers. |
-| `docs/PLAN.md` | The full design: product, architecture, roadmap, testing. |
-| `docs/reports/` | Findings from each Phase 0 spike. |
-| `ARCHITECTURE.md` | Short, binding rules for code. |
-| `DECISIONS.md` | Decisions that later work must follow. |
-| `ROADMAP.md` | What is done and what is next. |
-| `tasks/` | One file per task: backlog, active, done. |
-| `NATIVE_DEPS.md` | Native libraries, their versions, and their licenses. |
+| [`crates/`](crates) | The workspace. Each crate has one job and depends only on lower layers. |
+| [`docs/PLAN.md`](docs/PLAN.md) | The full design: product, architecture, roadmap, testing. |
+| [`docs/reports/`](docs/reports) | Findings from each foundation spike. |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Short, binding rules for code. |
+| [`DECISIONS.md`](DECISIONS.md) | Decisions later work must follow. |
+| [`ROADMAP.md`](ROADMAP.md) | What is done and what is next. |
+| [`NATIVE_DEPS.md`](NATIVE_DEPS.md) | Native libraries, versions, and licenses. |
 
 ## License
 
-MIT OR Apache-2.0. `LICENSE-APACHE` still needs to be added (see [ROADMAP.md](ROADMAP.md)).
+RustCAD is licensed under the GNU General Public License, version 3 or later
+([LICENSE](LICENSE)). You may use, study, change, and share it. Anything you distribute that
+is built on it must be offered under the same license, with its source.
 
 OpenCascade is a separate library under LGPL-2.1 with the Open CASCADE exception. It is
 fetched at build time and linked dynamically. This software uses facilities provided by the

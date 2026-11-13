@@ -43,7 +43,7 @@ A desktop parametric CAD application for mechanical part design. It is written i
 | # | Decision | Choice | Section |
 |---|---|---|---|
 | D1 | Geometry kernel | OpenCascade (OCCT) behind a `Kernel` trait. Pure Rust backend kept as an experiment. | 6 |
-| D2 | App license | MIT OR Apache-2.0. OCCT linked dynamically. | 4 |
+| D2 | App license | GPL-3.0-or-later (D12 in `DECISIONS.md`; originally MIT OR Apache-2.0). OCCT linked dynamically. | 4 |
 | D3 | Modeling paradigm | Direct interaction on top of a recorded feature history. | 3 |
 | D4 | Source of truth | The feature graph. Geometry is a cache. | 8 |
 | D5 | Command layer | One typed command registry serves GUI, plugins, MCP, and CLI. | 5 |
@@ -303,7 +303,7 @@ Nothing in this section is legal advice. Confirm each license before relying on 
 2. **GPL-3.0-or-later.** Allows any FOSS dependency, including GPL solvers. Forks must stay open. Some companies avoid it.
 3. **LGPL.** A middle path. Awkward with Rust's static linking model.
 
-**Choice: MIT OR Apache-2.0** for all first-party crates.
+**Choice: GPL-3.0-or-later** for all first-party crates. The first draft chose MIT OR Apache-2.0. The owner reversed that on 2026-11-13 (D12) so that anything built on the project stays under the same license.
 
 ### 4.2 Dependency licenses
 
@@ -313,7 +313,7 @@ Nothing in this section is legal advice. Confirm each license before relying on 
 | truck | Experimental kernel | Apache-2.0 **[verify]** | |
 | arris | Experimental kernel | MIT or Apache-2.0 | Confirmed in research. |
 | planegcs (from FreeCAD) | Sketch solver option | LGPL **[verify]** | Link dynamically. |
-| SolveSpace solver | Sketch solver option | GPL-3.0 **[verify]** | Not usable under D2. |
+| SolveSpace solver | Sketch solver option | GPL-3.0 **[verify]** | Usable since D12. Was excluded under D2. |
 | wgpu | Rendering | MIT or Apache-2.0 **[verify]** | |
 | egui | UI | MIT or Apache-2.0 **[verify]** | |
 | wasmtime | Plugin runtime | Apache-2.0 with LLVM exception **[verify]** | |
@@ -323,7 +323,7 @@ Nothing in this section is legal advice. Confirm each license before relying on 
 ### 4.3 Policy rules
 
 1. Allowed licenses: MIT, Apache-2.0, BSD, ISC, Zlib, MPL-2.0, Unicode, CC0. LGPL only for dynamically linked native libraries on an explicit list.
-2. GPL and AGPL dependencies are refused under D2.
+2. Dependencies must be compatible with GPL-3.0 (D12). The `cargo-deny` allowlist still lists permissive licenses only; a GPL dependency needs it extended first.
 3. No dependency may require an account, a license key, or a network call to function.
 4. No proprietary SDKs. This rules out native SLDPRT, X_T, DWG, and similar formats.
 5. Fonts and icons must be OFL, Apache, MIT, or CC0.
@@ -340,7 +340,7 @@ Nothing in this section is legal advice. Confirm each license before relying on 
 ### 4.5 Contribution policy
 
 1. Developer Certificate of Origin sign-off on commits. No CLA.
-2. Contributions are licensed under the same dual license.
+2. Contributions are licensed under the same license.
 3. Agent-authored commits are labeled as such in a trailer.
 
 ### 4.6 Development models
@@ -449,7 +449,7 @@ All document mutation goes through a single writer. Readers get immutable snapsh
 | truck family | Medium to low | Yes | Yes | Experimental backend |
 | arris | New | Yes | Yes | Watch, test in spikes |
 | Fornjot | Archived | Yes | Yes | Rejected |
-| Parasolid | Highest | n/a | No | Rejected under D2 |
+| Parasolid | Highest | n/a | No | Rejected: proprietary |
 | Write our own | None | Yes | Yes | Rejected, too large |
 
 ### 6.2 The `Kernel` trait
@@ -536,7 +536,7 @@ Coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, conce
 2. Backend options:
    1. **planegcs** from FreeCAD. Mature. LGPL. Dynamically linked. **[verify licensing and how cleanly it extracts]**
    2. **Rust-native solver.** Newton or Levenberg-Marquardt over a constraint Jacobian. More work, fully owned.
-   3. **SolveSpace solver.** Excluded by its GPL license under D2.
+   3. **SolveSpace solver.** GPL-3.0. Excluded under D2, allowed since D12.
 3. Plan: start with planegcs behind the trait. Build the Rust-native solver in parallel as a loop task with planegcs as the reference oracle.
 
 ### 7.4 Behavior requirements

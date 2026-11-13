@@ -10,7 +10,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] CI workflow for Linux, macOS, Windows (not yet run on a host)
 - [x] `cad-math`: `Vec3`, `Tolerance`
 - [x] `cad-kernel`: Phase 0 `Kernel` trait and `HistoryMap` types
-- [ ] Add `LICENSE-APACHE`
+- [x] License: GPL-3.0-or-later, `LICENSE` added (D12)
 - [ ] Verify the items in `docs/PLAN.md`, section 17.3
 - [x] T001 Reference kernel for analytic boxes (test double)
 - [x] T002 Golden geometry harness

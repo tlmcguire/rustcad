@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 
 # unsafe is forbidden everywhere by default.
 # cad-kernel-occt will opt out explicitly when the FFI lands (ARCHITECTURE.md, rule 2).

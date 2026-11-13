@@ -7,6 +7,11 @@ allow = [
 ]
 confidence-threshold = 0.9
 
+# The workspace's own crates are GPL-3.0-or-later (DECISIONS.md, D12) and are never published.
+# They are exempt, so the allowlist above governs third-party dependencies only.
+[licenses.private]
+ignore = true
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

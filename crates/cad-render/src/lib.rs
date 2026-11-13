@@ -55,7 +55,9 @@ pub enum RenderError {
     Readback(String),
     /// The image could not be encoded.
     Encode(String),
-    /// The image file could not be written.
+    /// The data is not a PNG this crate reads: 8-bit RGBA, not animated.
+    Decode(String),
+    /// The image file could not be read or written.
     Io(String),
 }
 
@@ -74,7 +76,8 @@ impl std::fmt::Display for RenderError {
             }
             Self::Readback(m) => write!(f, "cannot read pixels back: {m}"),
             Self::Encode(m) => write!(f, "cannot encode image: {m}"),
-            Self::Io(m) => write!(f, "cannot write image: {m}"),
+            Self::Decode(m) => write!(f, "cannot decode image: {m}"),
+            Self::Io(m) => write!(f, "image file error: {m}"),
         }
     }
 }

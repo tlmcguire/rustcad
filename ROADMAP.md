@@ -18,7 +18,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] T004 Worker process spike with latency numbers
 - [x] T005 wgpu viewport and ID-buffer picking spike
 - [x] T006 Topological naming spike
-- [ ] Headless renderer and snapshot gate
+- [x] T007 Snapshot harness: headless renders checked against reference images under `cargo test`
 - [ ] Determinism, performance, coverage, mutation, and API-diff gates
 - [ ] Loop orchestrator
 

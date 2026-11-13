@@ -14,3 +14,4 @@ Binding on all later tasks. To reverse one, add a new record that names it and t
 | D8 | Rendering: wgpu. | Accepted |
 | D9 | Development: autonomous loop behind scripted merge gates. | Accepted |
 | D10 | Units: lengths are millimetres and angles are radians internally. | Accepted |
+| D11 | Golden files: strict line-based `key = value` text, parsed in `cad-testkit`. No serialization dependency. Unknown, duplicate, or missing keys are errors. | Accepted |

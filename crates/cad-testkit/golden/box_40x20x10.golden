@@ -1,0 +1,8 @@
+# Axis-aligned box, one corner at the origin, size 40 x 20 x 10 mm.
+volume     = 8000
+area       = 2800
+bbox_min   = 0 0 0
+bbox_max   = 40 20 10
+face_count = 6
+tolerance  = 1e-6
+source     = analytic: V = abc, A = 2(ab + bc + ca), computed by hand for a = 40, b = 20, c = 10

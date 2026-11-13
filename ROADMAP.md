@@ -13,7 +13,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [ ] Add `LICENSE-APACHE`
 - [ ] Verify the items in `docs/PLAN.md`, section 17.3
 - [x] T001 Reference kernel for analytic boxes (test double)
-- [ ] T002 Golden geometry harness
+- [x] T002 Golden geometry harness
 - [ ] T003 OCCT build and minimal binding spike
 - [ ] T004 Worker process spike with latency numbers
 - [ ] T005 wgpu viewport and ID-buffer picking spike

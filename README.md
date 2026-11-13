@@ -25,14 +25,14 @@ under the hand, and deep enough for real engineering.
 | **Rendering** | A wgpu renderer with shaded faces and edges, in a window or straight to PNG. About 2 ms per frame for a million triangles on an Apple M2. |
 | **Picking** | Click a pixel, get the face beneath it. |
 | **Naming** | Faces are named by the feature that made them, so references outlive edits to earlier steps. A spike, with one known flaw written up. |
+| **Isolation** | The kernel can run in a separate worker process. If it crashes or hangs, the call fails cleanly and a fresh worker takes over. About 10 to 40 microseconds added per call. |
 | **Testing** | Golden files check any kernel against expected volume, area, bounds, and face count. One script runs every merge gate. |
 
 Verified on macOS with Apple Silicon. Linux and Windows are intended and not yet tested.
 
 Still to come before it is an application: sketching, features beyond boxes and booleans,
 the document model, undo, file formats, the interface, the command line tool, the agent
-server, and plugins. The kernel also runs in-process for now, so a crash inside it is not
-contained.
+server, and plugins.
 
 ## Where it is going
 

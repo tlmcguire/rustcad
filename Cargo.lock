@@ -193,6 +193,7 @@ name = "cad-doc"
 version = "0.0.0"
 dependencies = [
  "cad-kernel",
+ "cad-math",
  "cad-sketch",
 ]
 
@@ -284,6 +285,7 @@ name = "cad-testkit"
 version = "0.0.0"
 dependencies = [
  "cad-commands",
+ "cad-doc",
  "cad-kernel",
  "cad-kernel-occt",
  "cad-math",

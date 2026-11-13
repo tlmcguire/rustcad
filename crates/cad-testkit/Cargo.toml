@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 cad-commands = { version = "0.0.0", path = "../cad-commands" }
+cad-doc = { version = "0.0.0", path = "../cad-doc" }
 cad-kernel = { version = "0.0.0", path = "../cad-kernel" }
 cad-kernel-occt = { version = "0.0.0", path = "../cad-kernel-occt" }
 cad-math = { version = "0.0.0", path = "../cad-math" }

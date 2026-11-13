@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 cad-kernel = { version = "0.0.0", path = "../cad-kernel" }
+cad-math = { version = "0.0.0", path = "../cad-math" }
 cad-sketch = { version = "0.0.0", path = "../cad-sketch" }
 
 [lints]

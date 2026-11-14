@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc;
 
 use cad_kernel::{FaceIndex, Mesh};
@@ -12,8 +13,9 @@ pub const OFFSCREEN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unor
 const ID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+/// Colour of faces with no colour of their own, 8-bit sRGB.
+pub const DEFAULT_FACE_COLOR: [u8; 3] = [188, 203, 223];
 /// Linear colours.
-const FACE_COLOR: [f32; 4] = [0.50, 0.60, 0.74, 1.0];
 const EDGE_COLOR: [f32; 4] = [0.01, 0.01, 0.015, 1.0];
 const BACKGROUND: wgpu::Color = wgpu::Color {
     r: 0.85,
@@ -21,13 +23,110 @@ const BACKGROUND: wgpu::Color = wgpu::Color {
     b: 0.88,
     a: 1.0,
 };
+const TECH_BACKGROUND: wgpu::Color = wgpu::Color {
+    r: 0.004,
+    g: 0.004,
+    b: 0.005,
+    a: 1.0,
+};
 
-/// Words per face vertex: position, normal, face index.
-const FACE_VERTEX_WORDS: usize = 7;
-const FACE_VERTEX_BYTES: u64 = 28;
+/// Words per face vertex: position, normal, face index, packed sRGB colour.
+const FACE_VERTEX_WORDS: usize = 8;
+const FACE_VERTEX_BYTES: u64 = 32;
+const FACE_ATTRIBUTES: [wgpu::VertexAttribute; 4] =
+    wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32, 3 => Unorm8x4];
 const EDGE_VERTEX_BYTES: u64 = 12;
 /// Bytes per pixel of both the colour and the ID format.
 const PIXEL_BYTES: u32 = 4;
+
+/// What the viewport shows, after the view modes of game engine editors.
+///
+/// Every mode except [`ViewMode::Overdraw`] writes the face ID buffer, so picking works the
+/// same in all of them. Face boundary edges are drawn in the lit mode only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewMode {
+    /// Each face in its colour, lit from the eye, with dark edges on face boundaries.
+    #[default]
+    Lit,
+    /// Each face in its colour, unlit and without edges: the base colour alone.
+    Unlit,
+    /// Every triangle outlined, on a dark fill.
+    Wireframe,
+    /// Every triangle in its own colour, to show how finely a surface is tessellated.
+    Triangles,
+    /// Every face in a colour made from its index: the picking buffer made visible.
+    Faces,
+    /// The world-space surface normal as red, green, and blue.
+    Normals,
+    /// Distance from the eye as a colour ramp, striped where the stored depth value crosses
+    /// each 1/64. Stripes bunch where depth precision is spent; where there are none, nearby
+    /// surfaces share a depth value and can fight.
+    Depth,
+    /// Every surface drawn with additive colour and no depth test: brightness counts how many
+    /// triangles cover each pixel. The ID buffer is not written.
+    Overdraw,
+}
+
+impl ViewMode {
+    /// Every mode, in order.
+    pub const ALL: [Self; 8] = [
+        Self::Lit,
+        Self::Unlit,
+        Self::Wireframe,
+        Self::Triangles,
+        Self::Faces,
+        Self::Normals,
+        Self::Depth,
+        Self::Overdraw,
+    ];
+
+    /// A short name for menus and labels.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Lit => "Lit",
+            Self::Unlit => "Unlit",
+            Self::Wireframe => "Wireframe",
+            Self::Triangles => "Triangles",
+            Self::Faces => "Faces",
+            Self::Normals => "World normal",
+            Self::Depth => "Scene depth",
+            Self::Overdraw => "Overdraw",
+        }
+    }
+
+    fn code(self) -> u8 {
+        match self {
+            Self::Lit => 0,
+            Self::Unlit => 1,
+            Self::Wireframe => 2,
+            Self::Triangles => 3,
+            Self::Faces => 4,
+            Self::Normals => 5,
+            Self::Depth => 6,
+            Self::Overdraw => 7,
+        }
+    }
+
+    fn from_code(code: u8) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|mode| mode.code() == code)
+            .unwrap_or_default()
+    }
+
+    /// The lit and unlit modes show the model; the others are technical views on black.
+    fn background(self) -> wgpu::Color {
+        match self {
+            Self::Lit | Self::Unlit => BACKGROUND,
+            _ => TECH_BACKGROUND,
+        }
+    }
+
+    fn draws_edges(self) -> bool {
+        self == Self::Lit
+    }
+}
 
 /// Draws meshes with shaded faces and edges, and reports which face is under a pixel.
 ///
@@ -38,10 +137,12 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     faces: wgpu::RenderPipeline,
+    overdraw: wgpu::RenderPipeline,
     edges: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     adapter: String,
+    mode: AtomicU8,
 }
 
 /// A mesh uploaded to the GPU.
@@ -180,10 +281,28 @@ impl Renderer {
             immediate_size: 0,
         });
 
-        let pipeline = |label, vertex: (&str, wgpu::VertexBufferLayout<'_>), fragment, topology| {
+        // `additive`: the overdraw pipeline, which adds colour, ignores depth, and writes no IDs.
+        let pipeline = |label,
+                        vertex: (&str, wgpu::VertexBufferLayout<'_>),
+                        fragment,
+                        topology,
+                        additive: bool| {
             let id_writes = match topology {
-                wgpu::PrimitiveTopology::TriangleList => wgpu::ColorWrites::ALL,
+                wgpu::PrimitiveTopology::TriangleList if !additive => wgpu::ColorWrites::ALL,
                 _ => wgpu::ColorWrites::empty(),
+            };
+            let add = wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            };
+            let color_target = wgpu::ColorTargetState {
+                format: color_format,
+                blend: additive.then_some(wgpu::BlendState {
+                    color: add,
+                    alpha: add,
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
             };
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
@@ -200,8 +319,12 @@ impl Renderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    depth_write_enabled: Some(!additive),
+                    depth_compare: Some(if additive {
+                        wgpu::CompareFunction::Always
+                    } else {
+                        wgpu::CompareFunction::LessEqual
+                    }),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -211,7 +334,7 @@ impl Renderer {
                     entry_point: Some(fragment),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[
-                        Some(color_format.into()),
+                        Some(color_target),
                         Some(wgpu::ColorTargetState {
                             format: ID_FORMAT,
                             blend: None,
@@ -223,20 +346,24 @@ impl Renderer {
                 cache: None,
             })
         };
+        let face_layout = || wgpu::VertexBufferLayout {
+            array_stride: FACE_VERTEX_BYTES,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &FACE_ATTRIBUTES,
+        };
         let faces = pipeline(
             "cad-render faces",
-            (
-                "face_vs",
-                wgpu::VertexBufferLayout {
-                    array_stride: FACE_VERTEX_BYTES,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![
-                        0 => Float32x3, 1 => Float32x3, 2 => Uint32
-                    ],
-                },
-            ),
+            ("face_vs", face_layout()),
             "face_fs",
             wgpu::PrimitiveTopology::TriangleList,
+            false,
+        );
+        let overdraw = pipeline(
+            "cad-render overdraw",
+            ("face_vs", face_layout()),
+            "overdraw_fs",
+            wgpu::PrimitiveTopology::TriangleList,
+            true,
         );
         let edges = pipeline(
             "cad-render edges",
@@ -250,16 +377,19 @@ impl Renderer {
             ),
             "edge_fs",
             wgpu::PrimitiveTopology::LineList,
+            false,
         );
 
         Self {
             device,
             queue,
             faces,
+            overdraw,
             edges,
             globals,
             bind_group,
             adapter,
+            mode: AtomicU8::new(ViewMode::default().code()),
         }
     }
 
@@ -269,20 +399,47 @@ impl Renderer {
         &self.device
     }
 
+    /// Sets what later draws show.
+    pub fn set_view_mode(&self, mode: ViewMode) {
+        self.mode.store(mode.code(), Ordering::Relaxed);
+    }
+
+    /// What draws show.
+    #[must_use]
+    pub fn view_mode(&self) -> ViewMode {
+        ViewMode::from_code(self.mode.load(Ordering::Relaxed))
+    }
+
     /// The graphics adapter in use, for logs and reports.
     #[must_use]
     pub fn adapter(&self) -> &str {
         &self.adapter
     }
 
-    /// Uploads a mesh. Face boundaries become the drawn edges.
+    /// Uploads a mesh with every face in [`DEFAULT_FACE_COLOR`]. Face boundaries become the
+    /// drawn edges.
+    ///
+    /// # Errors
+    ///
+    /// As [`Renderer::upload_with_colors`].
+    pub fn upload(&self, mesh: &Mesh) -> Result<Scene, RenderError> {
+        self.upload_with_colors(mesh, &[])
+    }
+
+    /// Uploads a mesh with a colour per face: `colors[i]` is the 8-bit sRGB colour of face
+    /// `i`. Faces past the end of `colors` get [`DEFAULT_FACE_COLOR`]. Face boundaries become
+    /// the drawn edges.
     ///
     /// # Errors
     ///
     /// Returns [`RenderError::InvalidMesh`] when the mesh is empty, its arrays disagree in
     /// length, a triangle refers to a vertex that does not exist, or the mesh needs a larger
     /// vertex buffer than the device allows.
-    pub fn upload(&self, mesh: &Mesh) -> Result<Scene, RenderError> {
+    pub fn upload_with_colors(
+        &self,
+        mesh: &Mesh,
+        colors: &[[u8; 3]],
+    ) -> Result<Scene, RenderError> {
         let max = self.device.limits().max_buffer_size;
         let fits = |bytes: u64, what: &str| {
             if bytes <= max {
@@ -300,7 +457,7 @@ impl Renderer {
             triangles.saturating_mul(3 * FACE_VERTEX_BYTES),
             &format!("{triangles} triangles"),
         )?;
-        let faces = face_vertex_words(mesh)?;
+        let faces = face_vertex_words(mesh, colors)?;
         let face_vertices = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -377,8 +534,16 @@ impl Renderer {
     ) -> Result<(), RenderError> {
         let aspect = f64::from(targets.width) / f64::from(targets.height);
         let (view, view_proj) = camera.matrices(aspect)?;
+        let mode = self.view_mode();
         let mut globals = [0.0_f32; GLOBALS_WORDS];
         // Edges move toward the eye by the depth of EDGE_PULL_PX pixels at their distance.
+        #[allow(clippy::cast_possible_truncation)] // The GPU works in single precision.
+        let params = [
+            f32::from(mode.code()),
+            camera.near as f32,
+            camera.far as f32,
+            0.0,
+        ];
         let pull = EDGE_PULL_PX * 2.0 * (camera.fov_y / 2.0).tan() / f64::from(targets.height);
         #[allow(clippy::cast_possible_truncation)] // The GPU works in single precision.
         let eye_pull = [
@@ -391,7 +556,7 @@ impl Renderer {
             .iter()
             .chain(&view)
             .flatten()
-            .chain(&FACE_COLOR)
+            .chain(&params)
             .chain(&EDGE_COLOR)
             .chain(&eye_pull);
         for (slot, value) in globals.iter_mut().zip(values) {
@@ -415,7 +580,7 @@ impl Renderer {
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(BACKGROUND),
+                            load: wgpu::LoadOp::Clear(mode.background()),
                             store,
                         },
                     }),
@@ -440,10 +605,14 @@ impl Renderer {
                 ..Default::default()
             });
             pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.set_pipeline(&self.faces);
+            pass.set_pipeline(if mode == ViewMode::Overdraw {
+                &self.overdraw
+            } else {
+                &self.faces
+            });
             pass.set_vertex_buffer(0, scene.face_vertices.slice(..));
             pass.draw(0..scene.face_vertex_count, 0..1);
-            if let Some(edges) = &scene.edge_vertices {
+            if let (Some(edges), true) = (&scene.edge_vertices, mode.draws_edges()) {
                 pass.set_pipeline(&self.edges);
                 pass.set_vertex_buffer(0, edges.slice(..));
                 pass.draw(0..scene.edge_vertex_count, 0..1);
@@ -629,7 +798,7 @@ impl Renderer {
     }
 }
 
-/// Two matrices, two colours, and the eye with the edge pull.
+/// Two matrices, the shading parameters, the edge colour, and the eye with the edge pull.
 const GLOBALS_WORDS: usize = 44;
 const GLOBALS_BYTES: u64 = 176;
 
@@ -651,9 +820,9 @@ fn position(mesh: &Mesh, index: u32) -> Result<[f32; 3], RenderError> {
     Ok([p.x as f32, p.y as f32, p.z as f32])
 }
 
-/// Expands a mesh to three independent vertices per triangle, seven words each:
-/// position and normal as float bits, then the face index.
-fn face_vertex_words(mesh: &Mesh) -> Result<Vec<u32>, RenderError> {
+/// Expands a mesh to three independent vertices per triangle, eight words each: position and
+/// normal as float bits, the face index, and the face's sRGB colour packed as RGBA bytes.
+fn face_vertex_words(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Vec<u32>, RenderError> {
     let invalid = |what: &str| Err(RenderError::InvalidMesh(what.into()));
     if mesh.normals.len() != mesh.positions.len() {
         return invalid("normals and positions differ in length");
@@ -666,6 +835,11 @@ fn face_vertex_words(mesh: &Mesh) -> Result<Vec<u32>, RenderError> {
     }
     let mut words = Vec::with_capacity(mesh.triangles.len() * 3 * FACE_VERTEX_WORDS);
     for (triangle, face) in mesh.triangles.iter().zip(&mesh.triangle_faces) {
+        let [r, g, b] = colors
+            .get(face.0 as usize)
+            .copied()
+            .unwrap_or(DEFAULT_FACE_COLOR);
+        let color = u32::from_le_bytes([r, g, b, 255]);
         for &index in triangle {
             let p = position(mesh, index)?;
             // `position` succeeded, so the normal at the same index exists.
@@ -677,7 +851,260 @@ fn face_vertex_words(mesh: &Mesh) -> Result<Vec<u32>, RenderError> {
             words.extend(p.map(f32::to_bits));
             words.extend([n.x as f32, n.y as f32, n.z as f32].map(f32::to_bits));
             words.push(face.0);
+            words.push(color);
         }
     }
     Ok(words)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cad_math::Vec3;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    const SIZE: u32 = 64;
+    /// Pixels per millimetre on the z = 0 plane for [`camera`].
+    const SCALE: f64 = 10.16;
+
+    /// Looking down -Z from 10 mm, with +X right and +Y up on screen.
+    fn camera() -> Camera {
+        Camera {
+            eye: Vec3::new(0.0, 0.0, 10.0),
+            target: Vec3::ZERO,
+            up: Vec3::Y,
+            fov_y: Camera::DEFAULT_FOV_Y,
+            near: 1.0,
+            far: 20.0,
+        }
+    }
+
+    /// The pixel over a point of the z = 0 plane.
+    fn at(x: f64, y: f64) -> (u32, u32) {
+        let px = (f64::from(SIZE) / 2.0 + x * SCALE) as u32;
+        let py = (f64::from(SIZE) / 2.0 - y * SCALE) as u32;
+        (px, py)
+    }
+
+    /// A 2 x 2 mm quad facing +Z with its lower left corner at `(x, y, z)`, as two triangles.
+    fn quad(mesh: &mut Mesh, x: f64, y: f64, z: f64, face: u32) {
+        let base = u32::try_from(mesh.positions.len()).unwrap_or(u32::MAX);
+        for (dx, dy) in [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)] {
+            mesh.positions.push(Vec3::new(x + dx, y + dy, z));
+            mesh.normals.push(Vec3::Z);
+        }
+        mesh.triangles
+            .extend([[base, base + 1, base + 2], [base, base + 2, base + 3]]);
+        mesh.triangle_faces.extend([FaceIndex(face); 2]);
+    }
+
+    /// Face 0 on the left of the origin, face 1 on the right.
+    fn two_quads() -> Mesh {
+        let mut mesh = Mesh::default();
+        quad(&mut mesh, -2.0, -1.0, 0.0, 0);
+        quad(&mut mesh, 0.0, -1.0, 0.0, 1);
+        mesh
+    }
+
+    fn render(
+        renderer: &Renderer,
+        mesh: &Mesh,
+        colors: &[[u8; 3]],
+        mode: ViewMode,
+    ) -> Result<Frame, Box<dyn std::error::Error>> {
+        let scene = renderer.upload_with_colors(mesh, colors)?;
+        renderer.set_view_mode(mode);
+        Ok(renderer.render(&scene, &camera(), SIZE, SIZE)?)
+    }
+
+    fn pixel(frame: &Frame, (x, y): (u32, u32)) -> Result<[u8; 4], String> {
+        frame
+            .image
+            .pixel(x, y)
+            .ok_or_else(|| format!("no pixel at ({x}, {y})"))
+    }
+
+    fn close(a: [u8; 4], b: [u8; 4], tolerance: u8) -> bool {
+        a.iter().zip(&b).all(|(x, y)| x.abs_diff(*y) <= tolerance)
+    }
+
+    #[test]
+    fn view_modes_have_distinct_names_and_round_trip() {
+        let renderer_default = ViewMode::default();
+        assert_eq!(renderer_default, ViewMode::Lit);
+        let mut names: Vec<&str> = ViewMode::ALL.iter().map(|m| m.name()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), ViewMode::ALL.len());
+        for mode in ViewMode::ALL {
+            assert_eq!(ViewMode::from_code(mode.code()), mode);
+        }
+        assert_eq!(ViewMode::from_code(200), ViewMode::Lit);
+        assert!(ViewMode::Lit.draws_edges());
+        for mode in &ViewMode::ALL[1..] {
+            assert!(!mode.draws_edges(), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn the_view_mode_is_remembered() -> TestResult {
+        let renderer = Renderer::headless()?;
+        assert_eq!(renderer.view_mode(), ViewMode::Lit);
+        renderer.set_view_mode(ViewMode::Depth);
+        assert_eq!(renderer.view_mode(), ViewMode::Depth);
+        Ok(())
+    }
+
+    #[test]
+    fn vertex_words_carry_the_face_colour_or_the_default() -> TestResult {
+        let words = face_vertex_words(&two_quads(), &[[10, 20, 30]])?;
+        assert_eq!(words.len(), 4 * 3 * FACE_VERTEX_WORDS);
+        let color = |vertex: usize| words[vertex * FACE_VERTEX_WORDS + 7];
+        assert_eq!(color(0), u32::from_le_bytes([10, 20, 30, 255]));
+        let [r, g, b] = DEFAULT_FACE_COLOR;
+        assert_eq!(color(6), u32::from_le_bytes([r, g, b, 255]));
+        assert_eq!(
+            words[6 * FACE_VERTEX_WORDS + 6],
+            1,
+            "face index of vertex 6"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unlit_faces_show_their_colours_exactly() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let frame = render(
+            &renderer,
+            &two_quads(),
+            &[[200, 100, 50], [20, 160, 90]],
+            ViewMode::Unlit,
+        )?;
+        assert!(close(
+            pixel(&frame, at(-1.0, -0.5))?,
+            [200, 100, 50, 255],
+            2
+        ));
+        assert!(close(pixel(&frame, at(1.0, -0.5))?, [20, 160, 90, 255], 2));
+        Ok(())
+    }
+
+    #[test]
+    fn faces_without_a_colour_get_the_default() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let frame = render(&renderer, &two_quads(), &[], ViewMode::Unlit)?;
+        let [r, g, b] = DEFAULT_FACE_COLOR;
+        assert!(close(pixel(&frame, at(1.0, -0.5))?, [r, g, b, 255], 2));
+        Ok(())
+    }
+
+    #[test]
+    fn lit_faces_facing_the_eye_are_fully_lit_with_edges_and_a_light_background() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let frame = render(&renderer, &two_quads(), &[[200, 100, 50]], ViewMode::Lit)?;
+        assert!(close(
+            pixel(&frame, at(-1.0, -0.5))?,
+            [200, 100, 50, 255],
+            2
+        ));
+        assert!(pixel(&frame, (1, 1))?[0] > 200, "light background");
+        // The shared edge at x = 0 is drawn dark.
+        let row = at(0.0, -0.5).1;
+        let darkest = (28..36)
+            .filter_map(|x| frame.image.pixel(x, row))
+            .map(|p| p[0])
+            .min()
+            .unwrap_or(255);
+        assert!(darkest < 60, "darkest {darkest}");
+        Ok(())
+    }
+
+    #[test]
+    fn technical_views_are_on_black_without_edges_and_keep_picking() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let mesh = two_quads();
+        let lit = render(&renderer, &mesh, &[], ViewMode::Lit)?;
+        for mode in [
+            ViewMode::Wireframe,
+            ViewMode::Triangles,
+            ViewMode::Faces,
+            ViewMode::Normals,
+            ViewMode::Depth,
+        ] {
+            let frame = render(&renderer, &mesh, &[], mode)?;
+            assert!(pixel(&frame, (1, 1))?[0] < 30, "{mode:?} background");
+            assert_eq!(frame.ids, lit.ids, "{mode:?} IDs");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn faces_view_colours_each_face_and_triangles_view_each_triangle() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let mesh = two_quads();
+        let faces = render(&renderer, &mesh, &[], ViewMode::Faces)?;
+        // The left quad's two triangles: lower right and upper left of its diagonal.
+        let (lower, upper) = (at(-0.5, -0.6), at(-1.5, 0.6));
+        assert_eq!(pixel(&faces, lower)?, pixel(&faces, upper)?);
+        assert_ne!(pixel(&faces, lower)?, pixel(&faces, at(1.0, 0.0))?);
+        let triangles = render(&renderer, &mesh, &[], ViewMode::Triangles)?;
+        assert_ne!(pixel(&triangles, lower)?, pixel(&triangles, upper)?);
+        Ok(())
+    }
+
+    #[test]
+    fn wireframe_draws_triangle_sides_and_leaves_the_inside_dark() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let frame = render(&renderer, &two_quads(), &[], ViewMode::Wireframe)?;
+        // (-1, 0) is on the left quad's diagonal; (-0.5, -0.5) is 0.7 mm (7 px) from it.
+        let wire = pixel(&frame, at(-1.0, 0.0))?;
+        let inside = pixel(&frame, at(-0.5, -0.5))?;
+        assert!(wire[2] > 150, "wire {wire:?}");
+        // The fill is a faint tint of the face colour.
+        assert!(
+            inside[2] < 80 && wire[2] > inside[2] + 100,
+            "inside {inside:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn normals_view_shows_plus_z_as_blue() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let frame = render(&renderer, &two_quads(), &[], ViewMode::Normals)?;
+        assert!(close(pixel(&frame, at(1.0, 0.0))?, [128, 128, 255, 255], 2));
+        Ok(())
+    }
+
+    #[test]
+    fn depth_view_tells_near_from_far() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let mut mesh = Mesh::default();
+        quad(&mut mesh, -2.0, -1.0, 0.0, 0);
+        quad(&mut mesh, 0.0, -1.0, 6.0, 1);
+        let frame = render(&renderer, &mesh, &[], ViewMode::Depth)?;
+        let near = pixel(&frame, (SIZE / 2 + 12, SIZE / 2))?;
+        let far = pixel(&frame, at(-1.0, 0.0))?;
+        assert!(
+            far[0] > near[0] && far[1] > near[1],
+            "near {near:?}, far {far:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn overdraw_adds_up_layers_and_writes_no_ids() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let mut mesh = Mesh::default();
+        quad(&mut mesh, -2.0, -1.0, 0.0, 0);
+        quad(&mut mesh, 0.0, -1.0, 0.0, 1);
+        quad(&mut mesh, 0.0, -1.0, -1.0, 2);
+        let frame = render(&renderer, &mesh, &[], ViewMode::Overdraw)?;
+        let one = pixel(&frame, at(-1.0, -0.5))?;
+        let two = pixel(&frame, (SIZE / 2 + 6, at(0.0, -0.5).1))?;
+        assert!(two[0] > one[0] && one[0] > 20, "one {one:?}, two {two:?}");
+        assert!(frame.ids.iter().all(|id| *id == 0));
+        Ok(())
+    }
 }

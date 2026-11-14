@@ -2,13 +2,13 @@
 // flat-coloured edges.
 //
 // The view modes (`ViewMode` in renderer.rs) are: 0 lit, 1 unlit, 2 wireframe, 3 triangles,
-// 4 faces, 5 world normal, 6 scene depth, 7 overdraw. Overdraw has its own fragment entry
+// 4 faces, 5 world normal, 6 scene depth, 7 overdraw, 8 lighting only. Overdraw has its own fragment entry
 // point and pipeline. The face ID output is the same in every other mode.
 
 struct Globals {
     view_proj: mat4x4<f32>,
     view: mat4x4<f32>,
-    // x: view mode; y, z: near and far clip planes.
+    // x: view mode; y, z: near and far clip planes; w: flags, 1 baked light, 2 wire overlay.
     params: vec4<f32>,
     edge_color: vec4<f32>,
     // Eye position, and the fraction of its distance an edge vertex moves toward it.
@@ -27,7 +27,7 @@ struct FaceInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) face: u32,
-    // 8-bit sRGB colour of the face.
+    // 8-bit sRGB colour of the face; alpha carries baked light.
     @location(3) color: vec4<f32>,
 };
 
@@ -43,6 +43,8 @@ struct FaceVarying {
     // One at its own corner of the triangle, zero along the opposite side.
     @location(5) corner: vec3<f32>,
     @location(6) @interpolate(flat) triangle: u32,
+    // Baked light, interpolated smoothly between vertices.
+    @location(7) baked: f32,
 };
 
 struct Output {
@@ -96,6 +98,7 @@ fn face_vs(in: FaceInput) -> FaceVarying {
     out.world_normal = in.normal;
     out.face = in.face;
     out.color = to_linear(in.color.rgb);
+    out.baked = in.color.a;
     out.distance = -(globals.view * vec4<f32>(in.position, 1.0)).z;
     // Faces are drawn without an index buffer, three vertices per triangle in order.
     let k = in.vertex % 3u;
@@ -137,8 +140,13 @@ fn face_fs(in: FaceVarying) -> FaceOutput {
     // Headlight: brightest where the surface faces the camera. `abs` keeps
     // faces with flipped normals visible instead of black.
     let n = normalize(in.view_normal);
-    let light = 0.3 + 0.7 * abs(n.z);
+    var light = 0.3 + 0.7 * abs(n.z);
     let mode = u32(globals.params.x + 0.5);
+    let flags = u32(globals.params.w + 0.5);
+    if (flags & 1u) != 0u {
+        // Baked light replaces the light from the eye.
+        light = in.baked;
+    }
     var rgb = in.color * light;
     // Derivatives must be taken in uniform control flow, before the mode switch.
     let pixels = in.corner / max(fwidth(in.corner), vec3<f32>(1e-6));
@@ -169,7 +177,15 @@ fn face_fs(in: FaceVarying) -> FaceOutput {
             let band = u32(floor(in.clip.z * 64.0)) % 2u;
             rgb = ramp(t) * select(1.0, 0.5, band == 1u);
         }
+        case 8u: {
+            rgb = vec3<f32>(0.85) * light;
+        }
         default: {}
+    }
+    if (flags & 2u) != 0u {
+        // Wire overlay: dark lines along every triangle side, as engines draw over a view.
+        let wire = 1.0 - smoothstep(0.0, 1.0, min(min(pixels.x, pixels.y), pixels.z));
+        rgb = mix(rgb, vec3<f32>(0.004), wire * 0.85);
     }
     var out: FaceOutput;
     out.color = vec4<f32>(rgb, 1.0);

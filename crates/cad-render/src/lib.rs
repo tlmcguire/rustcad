@@ -22,11 +22,14 @@
 mod camera;
 mod edges;
 mod image;
+mod navigation;
 mod renderer;
+pub mod trace;
 
 pub use camera::Camera;
 pub use edges::feature_edges;
 pub use image::{Frame, Image};
+pub use navigation::Navigation;
 pub use renderer::{DEFAULT_FACE_COLOR, OFFSCREEN_FORMAT, Renderer, Scene, Targets, ViewMode};
 /// The graphics library, re-exported for callers that own a window surface.
 pub use wgpu;

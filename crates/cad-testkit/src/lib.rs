@@ -7,6 +7,7 @@
 //! See ARCHITECTURE.md and ROADMAP.md.
 
 pub mod golden;
+pub mod probe;
 mod reference_kernel;
 pub mod snapshot;
 

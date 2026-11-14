@@ -1,0 +1,12 @@
+# Performance budgets for scripts/gates.sh, in milliseconds per call (median of 15).
+# Protected path: loop agents may not edit this file.
+#
+# Set to about ten times the median measured on 2026-11-13 on an Apple M-series laptop
+# (debug profile, OCCT release build), to absorb slower CI runners. Measured then:
+# pocket build 2.3, union chain 23.6, tessellate 0.5, mass props 0.2, B-rep 0.8, STEP 5.4.
+pocket_build_ms           = 25
+union_chain_build_ms      = 250
+pocket_tessellate_ms      = 10
+pocket_mass_props_ms      = 5
+pocket_brep_round_trip_ms = 10
+pocket_step_round_trip_ms = 60

@@ -351,8 +351,10 @@ fn a_failed_assert_names_the_counts_saves_images_and_keeps_the_reference() -> Te
     let diff = Image::read_png(failure_dir().join("failing.diff.png"))?;
     let red = diff
         .rgba
-        .chunks_exact(4)
-        .filter(|p| *p == [255, 0, 0, 255])
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| **p == [255, 0, 0, 255])
         .count();
     assert_eq!(red, usize::try_from(changed)?);
     Ok(())

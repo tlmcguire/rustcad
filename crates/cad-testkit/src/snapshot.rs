@@ -297,7 +297,7 @@ pub fn difference_image(
 ) -> Result<Image, SnapshotError> {
     let deltas = pixel_deltas(actual, reference)?;
     let mut rgba = Vec::with_capacity(reference.rgba.len());
-    for (delta, pixel) in deltas.zip(reference.rgba.chunks_exact(4)) {
+    for (delta, pixel) in deltas.zip(reference.rgba.as_chunks::<4>().0) {
         if delta > channel_tolerance {
             rgba.extend([255, 0, 0, 255]);
         } else {
@@ -412,8 +412,10 @@ fn pixel_deltas<'a>(
     }
     Ok(actual
         .rgba
-        .chunks_exact(4)
-        .zip(reference.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(reference.rgba.as_chunks::<4>().0)
         .map(|(a, b)| {
             a.iter()
                 .zip(b)

@@ -1,0 +1,83 @@
+# Merge gates on Linux, macOS, and Windows (docs/PLAN.md section 15.5).
+# Protected path: loop agents may not edit this file.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    env:
+      CI: "true"
+      OCCT_REQUIRED: "1"
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The coverage, mutation, and API gates compare against the merge base.
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # OCCT is built from the pinned source once per platform and build-script version.
+      - name: Restore OpenCascade
+        id: occt
+        uses: actions/cache@v4
+        with:
+          path: .occt/install
+          key: occt-${{ runner.os }}-${{ hashFiles('crates/cad-kernel-occt/native/build-occt.sh') }}
+
+      - name: Build OpenCascade
+        if: steps.occt.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --upgrade cmake ninja
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+          fi
+          bash crates/cad-kernel-occt/native/build-occt.sh .occt
+          rm -rf .occt/src .occt/build
+
+      - name: Point the build at OpenCascade
+        run: |
+          root="$GITHUB_WORKSPACE/.occt/install"
+          echo "OCCT_ROOT=$root" >> "$GITHUB_ENV"
+          case "$RUNNER_OS" in
+            Linux) echo "LD_LIBRARY_PATH=$root/lib" >> "$GITHUB_ENV" ;;
+            Windows) echo "$root/bin" >> "$GITHUB_PATH" ;;
+          esac
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install gate tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Gates
+        run: bash scripts/gates.sh

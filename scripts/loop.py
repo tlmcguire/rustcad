@@ -262,6 +262,9 @@ def run_task(spec_path: Path, dry_run: bool):
             raise Shelve("the test author wrote no tests")
         if bad:
             raise Shelve(f"the test author changed non-test files: {bad}")
+        # Formatting is mechanical, and the builder may not touch these files, so the
+        # orchestrator formats them before they are committed.
+        sh(["cargo", "fmt", "--all"], cwd=tree, check=False, env=role_env())
         tests_now = sh(["cargo", "test", "--workspace"], cwd=tree, check=False, env=role_env())
         if tests_now.returncode == 0:
             raise Shelve("the new tests already pass before any implementation")

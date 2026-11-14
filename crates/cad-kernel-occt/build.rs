@@ -61,6 +61,17 @@ fn find_occt() -> Option<PathBuf> {
     usable(&local).then_some(local)
 }
 
+/// On Windows `canonicalize` returns a verbatim path (`\\?\D:\...`). Rust's file APIs accept
+/// it, but MSVC's `cl.exe` does not find headers through it in `-I`, so the prefix is dropped
+/// when the rest is an ordinary drive path.
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy().into_owned();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(occt)");
     println!("cargo::rerun-if-env-changed=OCCT_ROOT");
@@ -84,7 +95,10 @@ fn main() {
         return;
     };
     // An absolute path keeps the link search valid whatever directory rustc runs in.
-    let root = root.canonicalize().unwrap_or(root);
+    let root = root
+        .canonicalize()
+        .map(without_verbatim_prefix)
+        .unwrap_or(root);
 
     let missing: Vec<&str> = LIBS
         .iter()

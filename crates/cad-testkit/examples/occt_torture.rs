@@ -17,12 +17,14 @@ use std::time::{Duration, Instant};
 use cad_kernel::{BoolOp, Kernel, ShapeId};
 use cad_kernel_occt::OcctKernel;
 use cad_math::{Tolerance, Vec3};
-use cad_render::{Camera, Renderer};
+use cad_render::{Camera, Renderer, ViewMode};
 
+#[path = "../../cad-render/examples/support/text.rs"]
+mod text;
 #[path = "../../cad-render/examples/support/verify.rs"]
 mod verify;
 
-use verify::{Check, DynResult, print_checks, run_case, stack};
+use verify::{Check, DynResult, Inset, Shot, print_checks, run_case, stack};
 
 fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
@@ -84,6 +86,32 @@ fn volume_check(kernel: &OcctKernel, shape: ShapeId, expected: f64) -> DynResult
         error < 1e-9,
         format!("{got:.3} mm^3, expected {expected:.3} (relative error {error:.1e})"),
     ))
+}
+
+/// Renders and checks a kernel mesh in the default colour; the Faces view tells faces apart.
+fn show(
+    renderer: &Renderer,
+    title: &str,
+    mesh: &cad_kernel::Mesh,
+    camera: &Camera,
+) -> DynResult<verify::CaseOutcome> {
+    run_case(
+        renderer,
+        &Shot {
+            demo: "OCCT",
+            title: &title.to_uppercase(),
+            mesh,
+            colors: &[],
+            camera,
+            forbidden: &[],
+            main: ViewMode::Lit,
+            insets: [
+                Inset::View(ViewMode::Faces),
+                Inset::View(ViewMode::Wireframe),
+                Inset::Errors,
+            ],
+        },
+    )
 }
 
 fn main() -> DynResult<()> {
@@ -159,7 +187,7 @@ fn main() -> DynResult<()> {
     let centre = Vec3::new(side / 2.0, side / 2.0, 5.0);
     let camera = Camera::framing(centre, side * 0.75, Vec3::new(0.7, -1.0, 1.1))?;
     let title = format!("plate minus {} pockets, cut one boolean at a time", n * n);
-    let outcome = run_case(&renderer, &title, &mesh, &camera, (960, 600), &[])?;
+    let outcome = show(&renderer, &title, &mesh, &camera)?;
     checks.extend(outcome.checks);
     panels.push(outcome.panel);
 
@@ -212,7 +240,7 @@ fn main() -> DynResult<()> {
         "union of {} overlapping boxes, one boolean at a time",
         n * n
     );
-    let outcome = run_case(&renderer, &title, &mesh, &camera, (960, 600), &[])?;
+    let outcome = show(&renderer, &title, &mesh, &camera)?;
     checks.extend(outcome.checks);
     panels.push(outcome.panel);
 

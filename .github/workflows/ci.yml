@@ -48,9 +48,11 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       # OCCT is built from the pinned source once per platform and build-script version.
+      # Restore and save are separate steps so a build is cached as soon as it finishes,
+      # even when a later gate fails the job.
       - name: Restore OpenCascade
         id: occt
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .occt/install
           key: occt-${{ runner.os }}-${{ hashFiles('crates/cad-kernel-occt/native/build-occt.sh') }}
@@ -64,6 +66,13 @@ jobs:
           fi
           bash crates/cad-kernel-occt/native/build-occt.sh .occt
           rm -rf .occt/src .occt/build
+
+      - name: Save OpenCascade
+        if: steps.occt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .occt/install
+          key: ${{ steps.occt.outputs.cache-primary-key }}
 
       - name: Point the build at OpenCascade
         run: |

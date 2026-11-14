@@ -32,16 +32,16 @@ Exit: all spikes have reports. A STEP round trip runs in CI. The loop completes 
 Built out before more Phase 1 modeling work. Scope: `docs/PLAN.md`, section 9.1.
 
 - [x] Torture demos: dense meshes, depth range, coplanar faces, slivers, many bodies (PR #2)
-- [ ] Engine-style view modes and reworked torture demos (PR #4)
-- [ ] Per-triangle-plane depth: flush faces resolve exactly (PR #5)
-- [ ] Orbit, pan, and zoom-to-cursor in every windowed view
-- [ ] Technical views: triangles, IDs, wireframe, overdraw, depth, normals
+- [x] Engine-style view modes and reworked torture demos (PR #4)
+- [x] Per-triangle-plane depth: flush faces resolve exactly (PR #5)
+- [x] Orbit, pan, and zoom-to-cursor in every windowed view (`Navigation`, PR #7); fit-to-view and standard views still to come
+- [x] Technical views: triangles, IDs, wireframe, overdraw, depth, normals, lighting, and a wire overlay (PR #4, PR #7)
 - [ ] Physically based shading with image-based lighting
 - [ ] Anti-aliasing, shadows, and ambient occlusion
 - [ ] Hidden-line, section planes with caps, selection and hover highlighting
 - [ ] Order-independent transparency
-- [ ] Baked lighting per body
-- [ ] Ray-traced shadows and AO; offline path tracer for stills
+- [ ] Baked lighting per body (per vertex for a whole mesh, from CPU ray tracing: PR #7; per body and refreshed on change still to come)
+- [ ] Ray-traced shadows and AO; offline path tracer for stills (CPU baking and a CPU path tracer: PR #7; GPU ray tracing and progressive stills still to come)
 - [ ] Snapshot tests passing on all three CI platforms
 
 ## Phase 1: Part modeler MVP (started)

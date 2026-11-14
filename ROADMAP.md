@@ -21,7 +21,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] T007 Snapshot harness: headless renders checked against reference images under `cargo test`
 - [x] T008 BRep and STEP exchange with a golden round trip (passes locally; CI not yet run on a host)
 - [x] Determinism, performance, coverage, mutation, and API-diff gates
-- [ ] Loop orchestrator (`scripts/loop.py`, roles in `loop/roles/`)
+- [x] Loop orchestrator (`scripts/loop.py`, roles in `loop/roles/`); first run of T028 shelved by a loop bug, second run merged unaided ($0.60)
 - [x] T028 Vec3 distance and midpoint: first task run end to end by the loop
 - [x] First task specs drafted (`tasks/backlog/`, T009 to T027)
 

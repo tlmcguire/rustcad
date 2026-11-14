@@ -1,12 +1,12 @@
-I wrote 12 acceptance tests for T028 in `crates/cad-math/tests/vec3_distance_midpoint.rs`. Right now they don't compile, because `Vec3::distance` and `Vec3::midpoint` don't exist yet. That's the expected state until the builder adds them.
+I wrote the acceptance tests in `crates/cad-math/tests/vec3_distance_midpoint.rs`, one new file and no other changes. As expected, they don't compile yet: `cargo test -p cad-math --test vec3_distance_midpoint` fails with 13 errors because `Vec3::distance` and `Vec3::midpoint` don't exist.
 
-By acceptance criterion:
+There are 10 tests covering the four acceptance criteria. All float comparisons go through `Tolerance::eq_len`, `is_zero_len` or `eq_point`.
 
-1. **Distance basics:** the distance from (0,0,0) to (3,4,0) is 5, and the distance from a point to itself is 0. I added one more case, (1,2,2) between two points away from the origin, so all three components count.
-2. **Distance symmetry:** `a.distance(b)` equals `b.distance(a)` for four non-trivial pairs of points. Two extra checks go a bit beyond the spec: the distance between distinct points is positive, and it matches `(a - b).length()`.
-3. **Midpoint basics:** the midpoint of (0,0,0) and (2,4,-6) is (1,2,-3), and `a.midpoint(a)` is `a`. I added an offset case that checks the midpoint is the average of each coordinate.
-4. **Midpoint symmetry and distance:** `a.midpoint(b)` equals `b.midpoint(a)`, and the midpoint is the same distance from both points. One extra check requires that distance to be exactly half of `a.distance(b)`. Without it, any point equally far from both ends would pass.
+1. **Known distances:** (0,0,0) to (3,4,0) is 5. An extra case uses all three axes from a non-origin start. A point's distance to itself is 0.
+2. **Symmetric distance:** `a.distance(b)` equals `b.distance(a)` for every pair of five non-trivial points. Another test checks that distance is never negative.
+3. **Known midpoints:** the midpoint of (0,0,0) and (2,4,-6) is (1,2,-3). An extra case uses two non-origin points, and `a.midpoint(a)` is `a` for every sample point.
+4. **Symmetric midpoint:** the midpoint is the same either way round and the same distance from both points. It also checks that each half is half the full distance.
 
-All float comparisons go through `Tolerance`. I made no other changes and did not commit.
+My attempt to run rustfmt was denied. I made the one change `cargo fmt --check` had reported by hand, copying its suggested output exactly, but I haven't re-run the check.
 
-TESTS: The tests cover Euclidean distance (a known value, zero for the same point, symmetry, agreement with `(a - b).length()`) and the midpoint (known values, `a.midpoint(a)` is `a`, symmetry, and being half the distance from each end).
+TESTS: Known values, the zero-distance and `a.midpoint(a)` cases, symmetry of both helpers, and equal distance from the midpoint to both points.

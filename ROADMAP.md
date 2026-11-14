@@ -22,7 +22,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] T008 BRep and STEP exchange with a golden round trip (passes locally; CI not yet run on a host)
 - [x] Determinism, performance, coverage, mutation, and API-diff gates
 - [ ] Loop orchestrator (`scripts/loop.py`, roles in `loop/roles/`)
-- [ ] T028 Vec3 distance and midpoint: first task run end to end by the loop
+- [x] T028 Vec3 distance and midpoint: first task run end to end by the loop
 - [x] First task specs drafted (`tasks/backlog/`, T009 to T027)
 
 Exit: all spikes have reports. A STEP round trip runs in CI. The loop completes one trivial task unaided.

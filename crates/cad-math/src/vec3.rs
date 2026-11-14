@@ -55,6 +55,18 @@ impl Vec3 {
         let len = self.length();
         (len > f64::EPSILON).then(|| self * (1.0 / len))
     }
+
+    /// Euclidean distance between two points.
+    #[must_use]
+    pub fn distance(self, other: Self) -> f64 {
+        (other - self).length()
+    }
+
+    /// The point halfway between two points.
+    #[must_use]
+    pub fn midpoint(self, other: Self) -> Self {
+        (self + other) * 0.5
+    }
 }
 
 impl Add for Vec3 {

@@ -7,7 +7,8 @@
 #   <work-dir>/install  install prefix; point OCCT_ROOT here
 #
 # Needs git, cmake (3.16 or newer), ninja, and a C++17 compiler on PATH.
-# Only the three modules the Kernel trait needs are built.
+# Only the three modules the Kernel trait needs are built, plus the STEP toolkit (TKDESTEP)
+# and the toolkits CMake pulls in for it (XCAF, CAF, and parts of Visualization).
 set -euo pipefail
 
 OCCT_TAG="V7_9_3"
@@ -41,6 +42,7 @@ cmake -S "$work/src" -B "$work/build" -G Ninja \
   -DBUILD_MODULE_DataExchange=OFF \
   -DBUILD_MODULE_Draw=OFF \
   -DBUILD_MODULE_DETools=OFF \
+  -DBUILD_ADDITIONAL_TOOLKITS=TKDESTEP \
   -DBUILD_DOC_Overview=OFF \
   -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_TCL=OFF -DUSE_OPENGL=OFF \
   -DUSE_XLIB=OFF -DUSE_TBB=OFF -DUSE_VTK=OFF -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF

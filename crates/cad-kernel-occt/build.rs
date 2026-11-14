@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 /// Toolkits the shim calls into directly.
-const LIBS: [&str; 11] = [
+const LIBS: &[&str] = &[
     "TKernel",
     "TKMath",
     "TKG2d",
@@ -24,7 +24,22 @@ const LIBS: [&str; 11] = [
     "TKPrim",
     "TKBO",
     "TKMesh",
+    "TKXSBase",
+    "TKDE",
+    "TKDESTEP",
 ];
+
+/// True when `lib` holds a library named `name` on any platform's naming scheme.
+fn has_lib(lib: &Path, name: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(lib) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let file = entry.file_name();
+        let file = file.to_string_lossy();
+        file.starts_with(&format!("lib{name}.")) || file.starts_with(&format!("{name}."))
+    })
+}
 
 fn find_occt() -> Option<PathBuf> {
     let usable = |root: &Path| {
@@ -70,6 +85,21 @@ fn main() {
     };
     // An absolute path keeps the link search valid whatever directory rustc runs in.
     let root = root.canonicalize().unwrap_or(root);
+
+    let missing: Vec<&str> = LIBS
+        .iter()
+        .copied()
+        .filter(|name| !has_lib(&root.join("lib"), name))
+        .collect();
+    if !missing.is_empty() {
+        println!(
+            "cargo::error=the OpenCascade install at {} lacks {}. It predates STEP support; \
+             rebuild it with crates/cad-kernel-occt/native/build-occt.sh",
+            root.display(),
+            missing.join(", ")
+        );
+        return;
+    }
 
     let include = root.join("include/opencascade");
     let mut shim = cc::Build::new();

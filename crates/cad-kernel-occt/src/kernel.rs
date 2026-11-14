@@ -185,6 +185,38 @@ impl Kernel for OcctKernel {
         let _occt = ffi::lock();
         state.shapes.remove(&shape.0);
     }
+
+    fn to_brep_bytes(&self, shape: ShapeId) -> KResult<Vec<u8>> {
+        let state = self.state();
+        let occt = ffi::lock();
+        ffi::to_brep(&occt, get(&state, shape)?).map_err(KernelError::OperationFailed)
+    }
+
+    fn from_brep_bytes(&self, bytes: &[u8]) -> KResult<ShapeId> {
+        if bytes.is_empty() {
+            return Err(KernelError::InvalidInput("B-rep data is empty".into()));
+        }
+        let mut state = self.state();
+        let occt = ffi::lock();
+        let shape = ffi::from_brep(&occt, bytes).map_err(KernelError::OperationFailed)?;
+        Ok(Self::insert(&mut state, shape))
+    }
+
+    fn export_step(&self, shape: ShapeId) -> KResult<Vec<u8>> {
+        let state = self.state();
+        let occt = ffi::lock();
+        ffi::export_step(&occt, get(&state, shape)?).map_err(KernelError::OperationFailed)
+    }
+
+    fn import_step(&self, bytes: &[u8]) -> KResult<ShapeId> {
+        if bytes.is_empty() {
+            return Err(KernelError::InvalidInput("STEP data is empty".into()));
+        }
+        let mut state = self.state();
+        let occt = ffi::lock();
+        let shape = ffi::import_step(&occt, bytes).map_err(KernelError::OperationFailed)?;
+        Ok(Self::insert(&mut state, shape))
+    }
 }
 
 impl Drop for OcctKernel {

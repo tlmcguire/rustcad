@@ -1,0 +1,4 @@
+# The 40 x 20 x 10 box of the reference kernel, 320 x 240 pixels, seen from (1, -1.5, 0.8).
+channel_tolerance    = 8
+max_differing_pixels = 384
+source               = rendered by cad-render on an Apple M2 (Metal) on 2026-11-13 and inspected by eye: three faces in three distinct tones, dark edges on every face boundary

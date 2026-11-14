@@ -1,0 +1,6 @@
+# The toolchain every build, gate, and CI job uses (DECISIONS.md D13).
+# Bump it in a commit of its own, with whatever new lints require.
+[toolchain]
+channel = "1.93.1"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
+profile = "minimal"

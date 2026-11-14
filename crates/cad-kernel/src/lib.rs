@@ -149,4 +149,32 @@ pub trait Kernel: Send + Sync {
 
     /// Releases a shape. Using the handle afterwards returns `UnknownShape`.
     fn release(&self, shape: ShapeId);
+
+    /// Serialises a shape in the backend's native B-rep format, without any tessellation.
+    ///
+    /// The bytes are only meaningful to the same backend. The same shape gives the same bytes.
+    fn to_brep_bytes(&self, shape: ShapeId) -> KResult<Vec<u8>> {
+        let _ = shape;
+        Err(KernelError::Unsupported("to_brep_bytes"))
+    }
+
+    /// Reads a shape written by [`Kernel::to_brep_bytes`].
+    // Named as in docs/PLAN.md section 6.2. It takes `self` because the kernel owns the shape.
+    #[allow(clippy::wrong_self_convention)]
+    fn from_brep_bytes(&self, bytes: &[u8]) -> KResult<ShapeId> {
+        let _ = bytes;
+        Err(KernelError::Unsupported("from_brep_bytes"))
+    }
+
+    /// Writes a shape as a STEP file (ISO 10303-21), in millimetres.
+    fn export_step(&self, shape: ShapeId) -> KResult<Vec<u8>> {
+        let _ = shape;
+        Err(KernelError::Unsupported("export_step"))
+    }
+
+    /// Reads the shapes in a STEP file as one shape, converted to millimetres.
+    fn import_step(&self, bytes: &[u8]) -> KResult<ShapeId> {
+        let _ = bytes;
+        Err(KernelError::Unsupported("import_step"))
+    }
 }

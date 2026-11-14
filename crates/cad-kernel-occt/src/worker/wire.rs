@@ -16,7 +16,7 @@ use cad_math::Vec3;
 const MAX_FRAME: u32 = 1 << 30;
 
 /// One kernel call.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Request {
     MakeBox {
         origin: Vec3,
@@ -35,6 +35,10 @@ pub(crate) enum Request {
     },
     MassProps(ShapeId),
     Release(ShapeId),
+    ToBrep(ShapeId),
+    FromBrep(Vec<u8>),
+    ExportStep(ShapeId),
+    ImportStep(Vec<u8>),
 }
 
 /// The successful result of a call.
@@ -49,6 +53,7 @@ pub(crate) enum Reply {
     Count(u64),
     Mesh(Mesh),
     MassProps(MassProps),
+    Bytes(Vec<u8>),
     Done,
 }
 
@@ -119,8 +124,11 @@ impl Encoder {
         self.u32(u32::try_from(n).unwrap_or(u32::MAX));
     }
     fn text(&mut self, s: &str) {
-        self.len(s.len());
-        self.0.extend_from_slice(s.as_bytes());
+        self.bytes(s.as_bytes());
+    }
+    fn bytes(&mut self, b: &[u8]) {
+        self.len(b.len());
+        self.0.extend_from_slice(b);
     }
 }
 
@@ -161,10 +169,13 @@ impl Decoder<'_> {
         }
     }
     fn text(&mut self) -> io::Result<String> {
+        String::from_utf8(self.bytes()?).map_err(|_| corrupt("text is not UTF-8"))
+    }
+    fn bytes(&mut self) -> io::Result<Vec<u8>> {
         let n = self.len(1)?;
         let (head, rest) = self.0.split_at(n);
         self.0 = rest;
-        String::from_utf8(head.to_vec()).map_err(|_| corrupt("text is not UTF-8"))
+        Ok(head.to_vec())
     }
     fn list<T>(
         &mut self,
@@ -186,11 +197,11 @@ impl Decoder<'_> {
 impl Request {
     pub(crate) fn encode(&self) -> Vec<u8> {
         let mut e = Encoder::default();
-        match *self {
+        match self {
             Self::MakeBox { origin, size } => {
                 e.u8(1);
-                e.vec3(origin);
-                e.vec3(size);
+                e.vec3(*origin);
+                e.vec3(*size);
             }
             Self::Boolean { op, a, b } => {
                 e.u8(2);
@@ -213,8 +224,8 @@ impl Request {
             } => {
                 e.u8(4);
                 e.u64(shape.0);
-                e.f64(linear);
-                e.f64(angular);
+                e.f64(*linear);
+                e.f64(*angular);
             }
             Self::MassProps(shape) => {
                 e.u8(5);
@@ -223,6 +234,22 @@ impl Request {
             Self::Release(shape) => {
                 e.u8(6);
                 e.u64(shape.0);
+            }
+            Self::ToBrep(shape) => {
+                e.u8(7);
+                e.u64(shape.0);
+            }
+            Self::FromBrep(bytes) => {
+                e.u8(8);
+                e.bytes(bytes);
+            }
+            Self::ExportStep(shape) => {
+                e.u8(9);
+                e.u64(shape.0);
+            }
+            Self::ImportStep(bytes) => {
+                e.u8(10);
+                e.bytes(bytes);
             }
         }
         e.0
@@ -256,6 +283,10 @@ impl Request {
             },
             5 => Self::MassProps(ShapeId(d.u64()?)),
             6 => Self::Release(ShapeId(d.u64()?)),
+            7 => Self::ToBrep(ShapeId(d.u64()?)),
+            8 => Self::FromBrep(d.bytes()?),
+            9 => Self::ExportStep(ShapeId(d.u64()?)),
+            10 => Self::ImportStep(d.bytes()?),
             _ => return Err(corrupt("unknown request")),
         };
         d.end()?;
@@ -305,6 +336,7 @@ pub(crate) fn encode_response(result: &Result<Reply, KernelError>) -> Vec<u8> {
                     e.f64(props.area);
                     e.vec3(props.center);
                 }
+                Reply::Bytes(bytes) => e.bytes(bytes),
                 Reply::Done => {}
             }
         }
@@ -333,7 +365,10 @@ pub(crate) fn decode_response(
     let mut d = Decoder(body);
     let outcome = match d.u8()? {
         0 => Ok(match request {
-            Request::MakeBox { .. } => Reply::Shape(ShapeId(d.u64()?)),
+            Request::MakeBox { .. } | Request::FromBrep(_) | Request::ImportStep(_) => {
+                Reply::Shape(ShapeId(d.u64()?))
+            }
+            Request::ToBrep(_) | Request::ExportStep(_) => Reply::Bytes(d.bytes()?),
             Request::Boolean { .. } => {
                 let shape = ShapeId(d.u64()?);
                 let faces = d.list(17, |d| {
@@ -395,7 +430,10 @@ mod tests {
     use super::*;
 
     fn round_trip(request: Request, result: Result<Reply, KernelError>) {
-        assert_eq!(Request::decode(&request.encode()).ok(), Some(request));
+        assert_eq!(
+            Request::decode(&request.encode()).ok(),
+            Some(request.clone())
+        );
         let decoded = decode_response(&request, &encode_response(&result));
         assert_eq!(decoded.ok(), Some(result));
     }
@@ -460,8 +498,24 @@ mod tests {
             linear: 1e-6,
             angular: 0.5,
         };
-        round_trip(tessellate, Ok(Reply::Mesh(mesh)));
+        round_trip(tessellate.clone(), Ok(Reply::Mesh(mesh)));
         round_trip(tessellate, Ok(Reply::Mesh(Mesh::default())));
+    }
+
+    #[test]
+    fn exchange_messages_survive_a_round_trip() {
+        let s = ShapeId;
+        let data: Vec<u8> = (0..=255).collect();
+        round_trip(Request::ToBrep(s(3)), Ok(Reply::Bytes(data.clone())));
+        round_trip(Request::ExportStep(s(4)), Ok(Reply::Bytes(Vec::new())));
+        round_trip(Request::FromBrep(data.clone()), Ok(Reply::Shape(s(5))));
+        round_trip(Request::ImportStep(data), Ok(Reply::Shape(s(6))));
+        round_trip(Request::ImportStep(Vec::new()), Ok(Reply::Shape(s(7))));
+
+        // A byte count larger than the message is corrupt, not a huge allocation.
+        assert!(Request::decode(&[8, 0xFF, 0xFF, 0xFF, 0x7F, 1]).is_err());
+        let lying = [0u8, 0xFF, 0xFF, 0xFF, 0x7F];
+        assert!(decode_response(&Request::ToBrep(s(1)), &lying).is_err());
     }
 
     #[test]
@@ -473,7 +527,7 @@ mod tests {
             KernelError::OperationFailed("boolean failed".into()),
             KernelError::BackendLost("gone".into()),
         ] {
-            round_trip(request, Err(error));
+            round_trip(request.clone(), Err(error));
         }
         let unsupported = encode_response(&Err(KernelError::Unsupported("boolean")));
         let decoded = decode_response(&request, &unsupported).ok();

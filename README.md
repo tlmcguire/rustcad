@@ -26,7 +26,7 @@ under the hand, and deep enough for real engineering.
 | **Picking** | Click a pixel, get the face beneath it. |
 | **Naming** | Faces are named by the feature that made them, so references outlive edits to earlier steps. A spike, with one known flaw written up. |
 | **Isolation** | The kernel can run in a separate worker process. If it crashes or hangs, the call fails cleanly and a fresh worker takes over. About 10 to 40 microseconds added per call. |
-| **Testing** | Golden files check any kernel against expected volume, area, bounds, and face count. One script runs every merge gate. |
+| **Testing** | Golden files check any kernel against expected volume, area, bounds, and face count. Snapshots check renders against reference images within a threshold. One script runs every merge gate. |
 
 Verified on macOS with Apple Silicon. Linux and Windows are intended and not yet tested.
 

@@ -206,6 +206,33 @@ impl WorkerKernel {
     }
 }
 
+impl WorkerKernel {
+    /// A call on one of our shapes that returns bytes.
+    fn shape_to_bytes(
+        &self,
+        shape: ShapeId,
+        request: impl FnOnce(ShapeId) -> Request,
+    ) -> KResult<Vec<u8>> {
+        let mut session = locked(&self.session);
+        let remote = Self::remote(&session, shape)?;
+        match self.call(&mut session, request(remote)) {
+            Ok(Reply::Bytes(bytes)) => Ok(bytes),
+            Ok(_) => Err(unexpected()),
+            Err(KernelError::UnknownShape(_)) => Err(KernelError::UnknownShape(shape)),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// A call that creates a shape in the worker.
+    fn new_shape(&self, request: Request) -> KResult<ShapeId> {
+        let mut session = locked(&self.session);
+        match self.call(&mut session, request)? {
+            Reply::Shape(remote) => Ok(Self::register(&mut session, remote)),
+            _ => Err(unexpected()),
+        }
+    }
+}
+
 fn unexpected() -> KernelError {
     KernelError::BackendLost("the worker sent the wrong kind of reply".into())
 }
@@ -216,11 +243,7 @@ impl Kernel for WorkerKernel {
     }
 
     fn make_box(&self, origin: Vec3, size: Vec3) -> KResult<ShapeId> {
-        let mut session = locked(&self.session);
-        match self.call(&mut session, Request::MakeBox { origin, size })? {
-            Reply::Shape(remote) => Ok(Self::register(&mut session, remote)),
-            _ => Err(unexpected()),
-        }
+        self.new_shape(Request::MakeBox { origin, size })
     }
 
     fn boolean(&self, op: BoolOp, a: ShapeId, b: ShapeId) -> KResult<OpResult> {
@@ -295,6 +318,22 @@ impl Kernel for WorkerKernel {
         session.shapes.remove(&shape.0);
         // If the worker is lost here the shape is gone with it, which is what was asked for.
         let _ = self.call(&mut session, Request::Release(remote));
+    }
+
+    fn to_brep_bytes(&self, shape: ShapeId) -> KResult<Vec<u8>> {
+        self.shape_to_bytes(shape, Request::ToBrep)
+    }
+
+    fn from_brep_bytes(&self, bytes: &[u8]) -> KResult<ShapeId> {
+        self.new_shape(Request::FromBrep(bytes.to_vec()))
+    }
+
+    fn export_step(&self, shape: ShapeId) -> KResult<Vec<u8>> {
+        self.shape_to_bytes(shape, Request::ExportStep)
+    }
+
+    fn import_step(&self, bytes: &[u8]) -> KResult<ShapeId> {
+        self.new_shape(Request::ImportStep(bytes.to_vec()))
     }
 }
 

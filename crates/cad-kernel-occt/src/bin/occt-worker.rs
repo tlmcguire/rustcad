@@ -1,7 +1,9 @@
 //! Kernel worker process: serves an OpenCascade kernel on standard input and output.
 //!
 //! Started by `cad_kernel_occt::worker::WorkerKernel`. Not meant to be run by hand.
-//! Diagnostics go to standard error; standard output carries only protocol frames.
+//! Diagnostics go to standard error; standard output carries only protocol frames. At
+//! startup the worker moves standard output aside, so anything OCCT prints lands on
+//! standard error instead of corrupting a frame.
 //!
 //! Usage: `occt-worker [--test-delay-ms N]`
 
@@ -25,6 +27,13 @@ fn main() -> ExitCode {
             }
         }
     }
+    let protocol = match cad_kernel_occt::claim_stdout() {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("occt-worker: {e}");
+            return ExitCode::from(2);
+        }
+    };
     let kernel = match OcctKernel::new() {
         Ok(kernel) => kernel,
         Err(e) => {
@@ -33,7 +42,7 @@ fn main() -> ExitCode {
         }
     };
     let input = BufReader::new(std::io::stdin().lock());
-    let output = BufWriter::new(std::io::stdout().lock());
+    let output = BufWriter::new(protocol);
     match serve(&kernel, input, output, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

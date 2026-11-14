@@ -1,2 +1,5 @@
 /target
 .DS_Store
+/.occt
+__pycache__/
+/target/gates

@@ -58,6 +58,10 @@ fn execute(kernel: &dyn Kernel, request: Request) -> Result<Reply, KernelError> 
             kernel.release(shape);
             Reply::Done
         }
+        Request::ToBrep(shape) => Reply::Bytes(kernel.to_brep_bytes(shape)?),
+        Request::FromBrep(bytes) => Reply::Shape(kernel.from_brep_bytes(&bytes)?),
+        Request::ExportStep(shape) => Reply::Bytes(kernel.export_step(shape)?),
+        Request::ImportStep(bytes) => Reply::Shape(kernel.import_step(&bytes)?),
     })
 }
 

@@ -1,0 +1,17 @@
+# Loop budgets for scripts/loop.py (docs/PLAN.md section 15.11). Strict key = value text.
+# Protected path: loop agents may not edit this file.
+
+# Dollars one role run may spend, one task may spend in all, and the loop may spend per day.
+role_usd = 3
+task_usd = 10
+day_usd = 25
+
+# Seconds one role run may take before the task is shelved.
+role_timeout_s = 1800
+
+# Builder and reviewer rounds before a task is shelved (PLAN 15.4, step 6).
+max_rounds = 3
+
+# If shelve_limit of the last shelve_window tasks were shelved, write loop/HALT.
+shelve_window = 5
+shelve_limit = 3

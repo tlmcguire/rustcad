@@ -1,0 +1,109 @@
+# Merge gates on Linux, macOS, and Windows (docs/PLAN.md section 15.5).
+# Protected path: loop agents may not edit this file.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push queues behind a running job instead of cancelling it, so an OCCT build in
+# progress always finishes and lands in the cache.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gates:
+    name: gates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    env:
+      CI: "true"
+      OCCT_REQUIRED: "1"
+      CARGO_TERM_COLOR: always
+      # Coverage, mutation, and public API gates do not depend on the platform: Linux only.
+      GATES_DIFF_GATES: ${{ matrix.os == 'ubuntu-24.04' && '1' || '0' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The coverage, mutation, and API gates compare against the merge base.
+          fetch-depth: 0
+
+      # The version pinned in rust-toolchain.toml (DECISIONS.md D13); keep the two in step.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93.1"
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # OCCT is built from the pinned source once per platform and build-script version.
+      # Restore and save are separate steps so a build is cached as soon as it finishes,
+      # even when a later gate fails the job.
+      - name: Restore OpenCascade
+        id: occt
+        uses: actions/cache/restore@v4
+        with:
+          path: .occt/install
+          key: occt-${{ runner.os }}-${{ hashFiles('crates/cad-kernel-occt/native/build-occt.sh') }}
+
+      - name: Build OpenCascade
+        if: steps.occt.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --upgrade cmake ninja
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+          fi
+          bash crates/cad-kernel-occt/native/build-occt.sh .occt
+          rm -rf .occt/src .occt/build
+
+      - name: Save OpenCascade
+        if: steps.occt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .occt/install
+          key: ${{ steps.occt.outputs.cache-primary-key }}
+
+      - name: Point the build at OpenCascade
+        run: |
+          root="$GITHUB_WORKSPACE/.occt/install"
+          echo "OCCT_ROOT=$root" >> "$GITHUB_ENV"
+          case "$RUNNER_OS" in
+            Linux) echo "LD_LIBRARY_PATH=$root/lib" >> "$GITHUB_ENV" ;;
+            Windows) echo "$root/bin" >> "$GITHUB_PATH" ;;
+          esac
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install gate tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Install diff gate tools
+        if: env.GATES_DIFF_GATES == '1'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-mutants,cargo-public-api
+
+      # cargo-public-api reads rustdoc JSON, which needs a nightly toolchain.
+      - name: Nightly toolchain for rustdoc JSON
+        if: env.GATES_DIFF_GATES == '1'
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Gates
+        run: bash scripts/gates.sh

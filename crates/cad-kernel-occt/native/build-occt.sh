@@ -6,8 +6,14 @@
 #   <work-dir>/build    CMake build tree
 #   <work-dir>/install  install prefix; point OCCT_ROOT here
 #
-# Needs git, cmake (3.16 or newer), ninja, and a C++17 compiler on PATH.
-# Only the three modules the Kernel trait needs are built.
+# Needs git, cmake (3.16 or newer), ninja, and a C++17 compiler on PATH. On Windows, run it
+# from Git Bash inside an MSVC developer environment.
+#
+# The install uses the Unix layout on every platform: include/opencascade, lib, and bin
+# (Windows DLLs). Shared libraries must be on the loader path at run time:
+# LD_LIBRARY_PATH on Linux, PATH on Windows. macOS records absolute install names.
+# Only the three modules the Kernel trait needs are built, plus the STEP toolkit (TKDESTEP)
+# and the toolkits CMake pulls in for it (XCAF, CAF, and parts of Visualization).
 set -euo pipefail
 
 OCCT_TAG="V7_9_3"
@@ -16,7 +22,8 @@ OCCT_URL="https://github.com/Open-Cascade-SAS/OCCT.git"
 
 work="${1:?usage: build-occt.sh <work-dir>}"
 mkdir -p "$work"
-work="$(cd "$work" && pwd)"
+# On Windows (Git Bash) `pwd -W` gives a path that CMake and MSVC understand.
+work="$(cd "$work" && { pwd -W 2>/dev/null || pwd; })"
 
 if [ ! -d "$work/src/.git" ]; then
   git clone --depth 1 --branch "$OCCT_TAG" "$OCCT_URL" "$work/src"
@@ -31,6 +38,7 @@ cmake -S "$work/src" -B "$work/build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DINSTALL_DIR="$work/install" \
+  -DINSTALL_DIR_LAYOUT=Unix \
   -DCMAKE_INSTALL_NAME_DIR="$work/install/lib" \
   -DBUILD_LIBRARY_TYPE=Shared \
   -DBUILD_MODULE_FoundationClasses=ON \
@@ -41,6 +49,7 @@ cmake -S "$work/src" -B "$work/build" -G Ninja \
   -DBUILD_MODULE_DataExchange=OFF \
   -DBUILD_MODULE_Draw=OFF \
   -DBUILD_MODULE_DETools=OFF \
+  -DBUILD_ADDITIONAL_TOOLKITS=TKDESTEP \
   -DBUILD_DOC_Overview=OFF \
   -DUSE_FREETYPE=OFF -DUSE_TK=OFF -DUSE_TCL=OFF -DUSE_OPENGL=OFF \
   -DUSE_XLIB=OFF -DUSE_TBB=OFF -DUSE_VTK=OFF -DUSE_RAPIDJSON=OFF -DUSE_DRACO=OFF

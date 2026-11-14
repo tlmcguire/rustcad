@@ -1,0 +1,1005 @@
+comparing with 83001ae
+
+== format ==
+
+== build ==
+
+== test ==
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+test naming::tests::faces_are_measured_from_a_mesh ... ok
+test naming::tests::children_that_cannot_be_told_apart_are_an_error ... ok
+test naming::tests::description_fallback_needs_one_face_in_the_same_plane ... ok
+test naming::tests::deleted_faces_vanish_and_unaccounted_faces_are_new ... ok
+test naming::tests::modified_faces_keep_their_id_whatever_index_they_land_on ... ok
+test naming::tests::history_that_does_not_match_the_shapes_is_rejected ... ok
+test naming::tests::resolution_prefers_the_id_and_reports_everything_else ... ok
+test naming::tests::ids_print_their_ancestry ... ok
+test naming::tests::split_children_are_numbered_by_position_not_kernel_order ... ok
+test naming::tests::two_inputs_merging_into_one_face_is_recorded ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test worker::server::tests::a_corrupt_request_ends_the_session ... ok
+test worker::wire::tests::corrupt_messages_are_rejected_not_trusted ... ok
+test worker::server::tests::requests_are_answered_in_order_until_the_stream_ends ... ok
+test worker::wire::tests::frames_carry_their_length ... ok
+test worker::wire::tests::errors_survive_a_round_trip ... ok
+test worker::wire::tests::exchange_messages_survive_a_round_trip ... ok
+test worker::wire::tests::every_message_survives_a_round_trip ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test bench_in_process_versus_worker ... ignored, benchmark; run with --release -- --ignored --nocapture
+test a_worker_that_cannot_start_is_reported_per_call ... ok
+test kernel_errors_cross_the_process_boundary_with_our_handles ... ok
+test a_call_that_exceeds_the_timeout_is_abandoned_and_the_worker_replaced ... ok
+test worker_gives_the_same_answers_as_the_in_process_kernel ... ok
+test calls_from_several_threads_share_one_worker ... ok
+test killing_the_worker_mid_call_returns_backend_lost_and_the_next_call_succeeds ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.55s
+
+
+running 4 tests
+test exchange_on_a_lost_workers_shape_is_unknown_shape ... ok
+test bad_input_through_the_worker_is_an_error_not_a_lost_worker ... ok
+test the_worker_and_the_in_process_kernel_read_each_others_files ... ok
+test step_and_brep_round_trips_work_through_the_worker ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test tolerance::tests::lengths_within_tolerance_are_equal ... ok
+test tolerance::tests::points_within_tolerance_coincide ... ok
+test vec3::tests::length_of_3_4_0_is_5 ... ok
+test vec3::tests::cross_of_x_and_y_is_z ... ok
+test vec3::tests::zero_vector_has_no_direction ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test a_number_without_a_unit_is_dimensionless ... ok
+test converting_to_a_unit_of_another_dimension_is_an_error ... ok
+test an_inch_is_25_4_mm ... ok
+test adding_a_length_to_an_angle_names_both_dimensions ... ok
+test degrees_are_stored_as_radians ... ok
+test lengths_are_stored_in_millimetres ... ok
+test every_unit_parses_from_its_symbol ... ok
+test lengths_multiply_to_area_and_divide_to_a_number ... ok
+test like_quantities_add_and_subtract ... ok
+test parsing_accepts_optional_whitespace ... ok
+test scaling_by_a_number_keeps_the_dimension ... ok
+test text_without_a_finite_number_is_rejected ... ok
+test unknown_units_are_reported_with_their_text ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 10 tests
+test distance_from_a_point_to_itself_is_zero ... ok
+test distance_from_origin_to_3_4_0_is_5 ... ok
+test distance_is_never_negative ... ok
+test distance_handles_all_three_axes ... ok
+test midpoint_is_equidistant_from_both_points ... ok
+test distance_is_symmetric ... ok
+test midpoint_is_symmetric ... ok
+test midpoint_of_a_point_with_itself_is_the_point ... ok
+test midpoint_of_non_origin_points ... ok
+test midpoint_of_origin_and_2_4_neg6_is_1_2_neg3 ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 12 tests
+test camera::tests::degenerate_cameras_are_rejected ... ok
+test camera::tests::looking_along_z_still_has_an_up_direction ... ok
+test camera::tests::target_projects_to_the_screen_centre_inside_the_depth_range ... ok
+test camera::tests::world_up_is_screen_up ... ok
+test edges::tests::an_empty_mesh_has_no_edges ... ok
+test edges::tests::an_edge_between_two_faces_is_a_boundary_of_both ... ok
+test edges::tests::triangle_order_and_winding_do_not_matter ... ok
+test edges::tests::a_quad_has_four_edges_and_no_diagonal ... ok
+test image::tests::a_missing_file_is_an_io_error ... ok
+test image::tests::a_png_that_is_not_rgba_is_rejected ... ok
+test image::tests::data_that_is_not_a_png_is_rejected ... ok
+test image::tests::png_round_trip_is_exact ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test the_reference_kernel_does_not_exchange ... ok
+test brep_bytes_are_repeatable ... ok
+test a_brep_round_trip_passes_the_golden_cases ... ok
+BinTools_ShapeSet::Read: File was not written with this version of the topology
+BinTools_ShapeSet::Read: File was not written with this version of the topology
+test bad_input_is_rejected_as_data ... ok
+test exchange_reports_released_handles ... ok
+test a_step_file_read_by_a_fresh_kernel_passes_the_golden_case ... ok
+test a_step_round_trip_passes_the_golden_cases ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 14 tests
+test every_key_is_required ... ok
+test contradictory_values_are_rejected ... ok
+test assert_golden_panics_naming_the_field - should panic ... ok
+test each_mismatched_field_is_named ... ok
+test kernel_failures_are_reported_as_kernel_errors ... ok
+test golden_file_records_every_required_value ... ok
+test assert_golden_panics_on_a_missing_file - should panic ... ok
+test malformed_lines_are_rejected_with_their_line_number ... ok
+test analytic_box_case_passes ... ok
+test mismatch_message_shows_expected_and_actual ... ok
+test source_may_contain_equals_signs ... ok
+test valid_text_parses ... ok
+test same_case_runs_against_any_dyn_kernel ... ok
+test values_inside_the_tolerance_pass ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 9 tests
+test a_split_face_gets_ordered_children_and_its_parent_reference_is_not_rebound ... ok
+test pieces_with_the_same_centre_are_ordered_by_area_through_two_operations ... ok
+test ids_come_from_the_creating_feature_and_role ... ok
+test a_deleted_face_is_not_rebound_to_a_lookalike_elsewhere ... ok
+test a_reference_to_a_piece_is_flagged_when_the_split_stops_happening ... ok
+test references_survive_changes_to_the_box_size ... ok
+test sequential_cuts_do_not_rebind_when_an_earlier_split_disappears ... ok
+test known_limitation_child_numbers_shift_when_the_piece_count_changes ... ok
+test child_ids_are_the_same_on_every_rebuild_and_follow_the_geometry ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 11 tests
+test a_through_slot_splits_the_faces_it_crosses ... ok
+test make_box_rejects_bad_sizes_before_reaching_occt ... ok
+test pocket_cut_history_accounts_for_every_face ... ok
+test box_tessellation_is_closed_tagged_and_wound_outward ... ok
+test box_minus_box_passes_its_golden_case ... ok
+test reports_backend_and_version ... ok
+test released_and_unknown_handles_are_reported ... ok
+test inputs_survive_a_boolean_and_results_are_repeatable ... ok
+test union_and_intersection_have_the_expected_volume ... ok
+test box_passes_the_same_golden_case_as_the_reference_kernel ... ok
+test calls_from_several_threads_are_serialised ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 13 tests
+test boolean_is_unsupported ... ok
+test box_has_six_faces ... ok
+test handles_are_not_reused_after_release ... ok
+test make_box_rejects_non_positive_sizes ... ok
+test mass_props_centre_follows_origin ... ok
+test make_box_rejects_non_finite_origin ... ok
+test mass_props_of_40_20_10_box ... ok
+test never_issued_handle_is_unknown ... ok
+test released_handle_is_unknown ... ok
+test tessellate_gives_twelve_tagged_triangles ... ok
+test tessellation_is_a_closed_outward_facing_box ... ok
+test tessellation_is_deterministic ... ok
+test works_through_a_trait_object_across_threads ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 12 tests
+test identical_images_do_not_differ ... ok
+test difference_image_marks_only_the_differing_pixels ... ok
+test check_passes_at_the_pixel_limit_and_fails_one_over ... ok
+test channel_tolerance_is_inclusive_and_applies_to_every_channel ... ok
+test size_mismatch_and_malformed_images_are_their_own_errors ... ok
+test spec_file_errors_name_the_line_or_the_key ... ok
+test spec_file_parses ... ok
+test missing_files_are_reported ... ok
+test update_writes_the_reference_image_beside_an_existing_spec ... ok
+test a_failed_assert_names_the_counts_saves_images_and_keeps_the_reference ... ok
+test box_from_another_view_does_not_match ... ok
+test box_render_matches_its_snapshot ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+
+running 9 tests
+test box_uploads_as_twelve_triangles_and_its_face_boundaries ... ok
+test bad_input_is_reported_not_panicked ... ok
+test a_corner_view_shows_exactly_the_three_near_faces ... ok
+test faces_are_shaded_and_edges_are_drawn ... ok
+test picking_misses_outside_the_shape_and_outside_the_frame ... ok
+test renders_to_a_png_file ... ok
+test rendering_twice_gives_identical_frames ... ok
+test single_pixel_pick_agrees_with_the_full_id_buffer ... ok
+test picking_returns_the_face_that_faces_the_camera ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test crates/cad-render/src/lib.rs - (line 7) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.49s; merged doctests compilation took 0.41s
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+== clippy ==
+
+== layers ==
+layers ok: 16 crates
+
+== unsafe outside allowed crates ==
+none
+
+== determinism ==
+reference box 5ebf9f97e4940a9d
+occt box 0de95e824b56a4d6
+occt pocket 86da826e63923f4f
+occt slot e19f7467060c1c3c
+occt union_chain ac2d66e88e9837a3
+tests pass on one thread
+
+== performance ==
+pocket_build_ms                  1.578 ms  budget     25.0 ms  ok
+union_chain_build_ms            20.800 ms  budget    250.0 ms  ok
+pocket_tessellate_ms             0.507 ms  budget     10.0 ms  ok
+pocket_mass_props_ms             0.180 ms  budget      5.0 ms  ok
+pocket_brep_round_trip_ms        0.776 ms  budget     10.0 ms  ok
+pocket_step_round_trip_ms        5.381 ms  budget     60.0 ms  ok
+
+== coverage on changed lines ==
+6 of 6 changed lines ran (100.0%, minimum 75%)
+
+== public API matches the spec ==
+cad-math: 2 added, 0 removed
+  + pub fn cad_math::Vec3::distance(self, Self) -> f64  in spec
+  + pub fn cad_math::Vec3::midpoint(self, Self) -> Self  in spec
+
+== mutation sample on changed code ==
+10 mutants; testing shard 1 of 1
+caught 6, timed out 0, missed 0, unviable 4: 100% caught (minimum 60%)
+
+== licenses and advisories ==
+advisories ok, bans ok, licenses ok, sources ok
+
+all gates passed
+   Compiling cad-math v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-math)
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling bitflags v2.13.2
+   Compiling objc2-encode v4.1.0
+   Compiling cfg_aliases v0.2.2
+   Compiling cfg-if v1.0.5
+   Compiling objc2 v0.6.5
+   Compiling libc v0.2.191
+   Compiling thiserror v2.0.21
+   Compiling cad-kernel v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-kernel)
+   Compiling autocfg v1.5.1
+   Compiling foldhash v0.2.0
+   Compiling libm v0.2.16
+   Compiling hashbrown v0.17.1
+   Compiling cad-sketch v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-sketch)
+   Compiling equivalent v1.0.3
+   Compiling zerocopy v0.8.63
+   Compiling rustc-hash v1.1.0
+   Compiling num-traits v0.2.19
+   Compiling cad-doc v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-doc)
+   Compiling syn v3.0.10
+   Compiling syn v2.0.119
+   Compiling indexmap v2.14.2
+   Compiling naga v30.0.2
+   Compiling parking_lot_core v0.9.12
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling bit-vec v0.9.1
+   Compiling log v0.4.35
+   Compiling objc2-foundation v0.3.2
+   Compiling raw-window-handle v0.6.2
+   Compiling unicode-width v0.2.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling codespan-reporting v0.13.1
+   Compiling bit-set v0.10.0
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling smallvec v1.16.5
+   Compiling scopeguard v1.2.0
+   Compiling static_assertions v1.1.0
+   Compiling lock_api v0.4.14
+   Compiling wgpu-hal v30.0.2
+   Compiling simd-adler32 v0.3.10
+   Compiling parking_lot v0.12.5
+   Compiling libloading v0.8.9
+   Compiling adler2 v2.0.1
+   Compiling profiling v1.0.18
+   Compiling crc32fast v1.5.5
+   Compiling wgpu-core v30.0.2
+   Compiling litrs v1.0.1
+   Compiling miniz_oxide v0.9.1
+   Compiling document-features v0.2.12
+   Compiling zerocopy-derive v0.8.63
+   Compiling thiserror-impl v2.0.21
+   Compiling bytemuck_derive v1.12.1
+   Compiling objc2-metal v0.3.2
+   Compiling wgpu v30.0.2
+   Compiling flate2 v1.1.11
+   Compiling bytemuck v1.25.2
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling naga-types v30.0.2
+   Compiling cad-eval v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-eval)
+   Compiling cad-query v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-query)
+   Compiling cad-io v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-io)
+   Compiling wgpu-types v30.0.2
+   Compiling pollster v1.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling shlex v2.0.1
+   Compiling cad-commands v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-commands)
+   Compiling cc v1.11.2
+   Compiling png v0.18.1
+   Compiling objc-sys v0.3.5
+   Compiling core-foundation-sys v0.8.7
+   Compiling objc2-quartz-core v0.3.2
+   Compiling cad-kernel-occt v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-kernel-occt)
+   Compiling core-foundation v0.9.4
+   Compiling raw-window-metal v1.1.0
+   Compiling objc2 v0.5.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling foreign-types-shared v0.3.1
+   Compiling bitflags v1.3.2
+   Compiling dispatch v0.2.0
+   Compiling foreign-types v0.5.0
+   Compiling core-graphics-types v0.1.3
+   Compiling winit v0.30.13
+   Compiling tracing-core v0.1.36
+   Compiling block2 v0.5.1
+   Compiling objc2-foundation v0.2.2
+   Compiling pin-project-lite v0.2.17
+   Compiling tracing v0.1.44
+   Compiling half v2.7.1
+   Compiling core-graphics v0.23.2
+   Compiling cursor-icon v1.2.0
+   Compiling dpi v0.1.2
+   Compiling smol_str v0.2.2
+   Compiling cad-cli v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-cli)
+   Compiling cad-plugin v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-plugin)
+   Compiling cad-kernel-rs v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-kernel-rs)
+   Compiling objc2-app-kit v0.2.2
+   Compiling wgpu-naga-bridge v30.0.2
+   Compiling wgpu-core-deps-apple v30.0.2
+   Compiling cad-render v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-render)
+   Compiling cad-testkit v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-testkit)
+   Compiling cad-ui v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-ui)
+   Compiling cad-mcp v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-mcp)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 44.19s
+   Compiling cad-kernel-occt v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-kernel-occt)
+   Compiling cad-testkit v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-testkit)
+    Finished `test` profile [optimized + debuginfo] target(s) in 3.89s
+     Running unittests src/main.rs (target/debug/deps/cad_cli-ab3684f51e48185b)
+     Running unittests src/lib.rs (target/debug/deps/cad_commands-e5343523f5604f55)
+     Running unittests src/lib.rs (target/debug/deps/cad_doc-22419f9b72de11f3)
+     Running unittests src/lib.rs (target/debug/deps/cad_eval-4c065232fa0d39ac)
+     Running unittests src/lib.rs (target/debug/deps/cad_io-3b0ab16a2b01182d)
+     Running unittests src/lib.rs (target/debug/deps/cad_kernel-c8bb31530a0899ad)
+     Running unittests src/lib.rs (target/debug/deps/cad_kernel_occt-2949551de62ecf37)
+     Running unittests src/bin/occt-worker.rs (target/debug/deps/occt_worker-8d27afc89fbb392c)
+     Running tests/worker.rs (target/debug/deps/worker-39fca27259da3eec)
+     Running tests/worker_exchange.rs (target/debug/deps/worker_exchange-3b40005af5b4c046)
+BinTools_ShapeSet::Read: File was not written with this version of the topology
+     Running unittests src/lib.rs (target/debug/deps/cad_kernel_rs-5c8b51e5e0923231)
+     Running unittests src/lib.rs (target/debug/deps/cad_math-545578467540e4c2)
+     Running tests/units.rs (target/debug/deps/units-73aa13b7e53402b0)
+     Running tests/vec3_distance_midpoint.rs (target/debug/deps/vec3_distance_midpoint-4e04f0cbacd4b91f)
+     Running unittests src/lib.rs (target/debug/deps/cad_mcp-ae936b982c7d4fec)
+     Running unittests src/lib.rs (target/debug/deps/cad_plugin-40b78633898c3ce3)
+     Running unittests src/lib.rs (target/debug/deps/cad_query-6e3b8b49da36f652)
+     Running unittests src/lib.rs (target/debug/deps/cad_render-b28a9db73152a298)
+     Running unittests src/lib.rs (target/debug/deps/cad_sketch-a43f4c664020e488)
+     Running unittests src/lib.rs (target/debug/deps/cad_testkit-7174738f39969395)
+     Running unittests src/bin/determinism.rs (target/debug/deps/determinism-951851fc9c5c2a2f)
+     Running unittests src/bin/perf.rs (target/debug/deps/perf-eaf5418bc06e8eab)
+     Running tests/exchange.rs (target/debug/deps/exchange-7c4783701ef08ed1)
+     Running tests/golden.rs (target/debug/deps/golden-3287650201e97ccf)
+     Running tests/naming.rs (target/debug/deps/naming-8540896fbe9bd519)
+     Running tests/occt.rs (target/debug/deps/occt-7a193c5059e31855)
+     Running tests/reference_kernel.rs (target/debug/deps/reference_kernel-60ddc9f2d931cf32)
+     Running tests/snapshot.rs (target/debug/deps/snapshot-ee0c205239a060bc)
+     Running tests/viewport.rs (target/debug/deps/viewport-7098a55c5314c484)
+     Running unittests src/lib.rs (target/debug/deps/cad_ui-75410649732aa6d3)
+   Doc-tests cad_commands
+   Doc-tests cad_doc
+   Doc-tests cad_eval
+   Doc-tests cad_io
+   Doc-tests cad_kernel
+   Doc-tests cad_kernel_occt
+   Doc-tests cad_kernel_rs
+   Doc-tests cad_math
+   Doc-tests cad_mcp
+   Doc-tests cad_plugin
+   Doc-tests cad_query
+   Doc-tests cad_render
+   Doc-tests cad_sketch
+   Doc-tests cad_testkit
+   Doc-tests cad_ui
+    Checking cad-math v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-math)
+    Checking bitflags v2.13.2
+    Checking objc2-encode v4.1.0
+    Checking cfg-if v1.0.5
+    Checking libc v0.2.191
+    Checking foldhash v0.2.0
+    Checking equivalent v1.0.3
+    Checking libm v0.2.16
+    Checking thiserror v2.0.21
+    Checking rustc-hash v1.1.0
+    Checking zerocopy v0.8.63
+    Checking log v0.4.35
+    Checking hashbrown v0.17.1
+    Checking raw-window-handle v0.6.2
+    Checking objc2 v0.6.5
+    Checking cad-kernel v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-kernel)
+    Checking cad-sketch v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-sketch)
+    Checking bit-vec v0.9.1
+    Checking unicode-width v0.2.3
+    Checking cad-doc v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-doc)
+    Checking bit-set v0.10.0
+    Checking codespan-reporting v0.13.1
+    Checking bytemuck v1.25.2
+    Checking unicode-ident v1.0.27
+    Checking indexmap v2.14.2
+    Checking static_assertions v1.1.0
+    Checking scopeguard v1.2.0
+    Checking arrayvec v0.7.8
+    Checking once_cell v1.21.4
+    Checking smallvec v1.16.5
+    Checking lock_api v0.4.14
+    Checking num-traits v0.2.19
+    Checking simd-adler32 v0.3.10
+    Checking libloading v0.8.9
+    Checking parking_lot_core v0.9.12
+    Checking adler2 v2.0.1
+    Checking profiling v1.0.18
+    Checking crc32fast v1.5.5
+    Checking miniz_oxide v0.9.1
+    Checking miniz_oxide v0.8.9
+    Checking parking_lot v0.12.5
+    Checking naga-types v30.0.2
+    Checking objc2-core-foundation v0.3.2
+    Checking block2 v0.6.2
+    Checking wgpu-types v30.0.2
+    Checking fdeflate v0.3.7
+    Checking cad-io v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-io)
+    Checking cad-query v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-query)
+    Checking cad-eval v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-eval)
+    Checking pollster v1.0.1
+   Compiling cad-kernel-occt v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-kernel-occt)
+    Checking cad-commands v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-commands)
+    Checking objc-sys v0.3.5
+    Checking core-foundation-sys v0.8.7
+    Checking dispatch v0.2.0
+    Checking objc2 v0.5.3
+    Checking foreign-types-shared v0.3.1
+    Checking core-foundation v0.9.4
+    Checking bitflags v1.3.2
+    Checking foreign-types v0.5.0
+    Checking pin-project-lite v0.2.17
+    Checking tracing-core v0.1.36
+    Checking flate2 v1.1.11
+    Checking core-graphics-types v0.1.3
+    Checking core-graphics v0.23.2
+    Checking objc2-foundation v0.3.2
+    Checking objc2-core-graphics v0.3.2
+    Checking png v0.18.1
+    Checking tracing v0.1.44
+    Checking dpi v0.1.2
+    Checking block2 v0.5.1
+    Checking cursor-icon v1.2.0
+    Checking smol_str v0.2.2
+    Checking cad-plugin v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-plugin)
+    Checking objc2-foundation v0.2.2
+    Checking cad-cli v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-cli)
+    Checking cad-kernel-rs v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-kernel-rs)
+    Checking half v2.7.1
+    Checking objc2-metal v0.3.2
+    Checking naga v30.0.2
+    Checking objc2-app-kit v0.2.2
+    Checking objc2-quartz-core v0.3.2
+    Checking raw-window-metal v1.1.0
+    Checking winit v0.30.13
+    Checking wgpu-naga-bridge v30.0.2
+    Checking wgpu-hal v30.0.2
+    Checking wgpu-core-deps-apple v30.0.2
+    Checking wgpu-core v30.0.2
+    Checking wgpu v30.0.2
+    Checking cad-render v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-render)
+    Checking cad-testkit v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-testkit)
+    Checking cad-mcp v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-mcp)
+    Checking cad-ui v0.0.0 (/Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-ui)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 10.93s
+warning[license-not-encountered]: license was not encountered
+  ┌─ /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/deny.toml:4:27
+  │
+4 │     "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception",
+  │                           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ unmatched license allowance
+
+warning[license-not-encountered]: license was not encountered
+  ┌─ /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/deny.toml:5:22
+  │
+5 │     "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib",
+  │                      ━━━━━━━━━━━━ unmatched license allowance
+
+warning[license-not-encountered]: license was not encountered
+  ┌─ /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/deny.toml:6:32
+  │
+6 │     "MPL-2.0", "Unicode-3.0", "CC0-1.0",
+  │                                ━━━━━━━ unmatched license allowance
+
+warning[license-not-encountered]: license was not encountered
+  ┌─ /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/deny.toml:6:6
+  │
+6 │     "MPL-2.0", "Unicode-3.0", "CC0-1.0",
+  │      ━━━━━━━ unmatched license allowance
+
+warning[duplicate]: found 2 duplicate entries for crate 'hashbrown'
+   ┌─ /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/Cargo.lock:79:1
+   │  
+79 │ ╭ hashbrown 0.16.1 registry+https://github.com/rust-lang/crates.io-index
+80 │ │ hashbrown 0.17.1 registry+https://github.com/rust-lang/crates.io-index
+   │ ╰──────────────────────────────────────────────────────────────────────┘ lock entries
+   │  
+   ├ hashbrown v0.16.1
+     └── gpu-allocator v0.28.0
+         └── wgpu-hal v30.0.2
+             ├── wgpu v30.0.2
+             │   └── cad-render v0.0.0
+             │       ├── cad-mcp v0.0.0
+             │       ├── cad-testkit v0.0.0
+             │       └── cad-ui v0.0.0
+             ├── wgpu-core v30.0.2
+             │   └── wgpu v30.0.2 (*)
+             ├── wgpu-core-deps-apple v30.0.2
+             │   └── wgpu-core v30.0.2 (*)
+             ├── wgpu-core-deps-emscripten v30.0.2
+             │   └── wgpu-core v30.0.2 (*)
+             └── wgpu-core-deps-windows-linux-android v30.0.2
+                 └── wgpu-core v30.0.2 (*)
+   ├ hashbrown v0.17.1
+     ├── indexmap v2.14.2
+     │   ├── naga v30.0.2
+     │   │   ├── wgpu-core v30.0.2
+     │   │   │   └── wgpu v30.0.2
+     │   │   │       └── cad-render v0.0.0
+     │   │   │           ├── cad-mcp v0.0.0
+     │   │   │           ├── cad-testkit v0.0.0
+     │   │   │           └── cad-ui v0.0.0
+     │   │   ├── wgpu-hal v30.0.2
+     │   │   │   ├── wgpu v30.0.2 (*)
+     │   │   │   ├── wgpu-core v30.0.2 (*)
+     │   │   │   ├── wgpu-core-deps-apple v30.0.2
+     │   │   │   │   └── wgpu-core v30.0.2 (*)
+     │   │   │   ├── wgpu-core-deps-emscripten v30.0.2
+     │   │   │   │   └── wgpu-core v30.0.2 (*)
+     │   │   │   └── wgpu-core-deps-windows-linux-android v30.0.2
+     │   │   │       └── wgpu-core v30.0.2 (*)
+     │   │   └── wgpu-naga-bridge v30.0.2
+     │   │       ├── wgpu-core v30.0.2 (*)
+     │   │       └── wgpu-hal v30.0.2 (*)
+     │   ├── naga-types v30.0.2
+     │   │   ├── naga v30.0.2 (*)
+     │   │   ├── wgpu-core v30.0.2 (*)
+     │   │   ├── wgpu-hal v30.0.2 (*)
+     │   │   └── wgpu-types v30.0.2
+     │   │       ├── wgpu v30.0.2 (*)
+     │   │       ├── wgpu-core v30.0.2 (*)
+     │   │       ├── wgpu-hal v30.0.2 (*)
+     │   │       └── wgpu-naga-bridge v30.0.2 (*)
+     │   ├── toml_edit v0.25.19+spec-1.1.0
+     │   │   └── proc-macro-crate v3.5.0
+     │   │       └── num_enum_derive v0.7.6
+     │   │           └── num_enum v0.7.6
+     │   │               ├── android-activity v0.6.1
+     │   │               │   └── winit v0.30.13
+     │   │               │       └── (dev) cad-render v0.0.0 (*)
+     │   │               └── ndk v0.9.0
+     │   │                   ├── android-activity v0.6.1 (*)
+     │   │                   └── winit v0.30.13 (*)
+     │   └── wgpu-core v30.0.2 (*)
+     ├── naga v30.0.2 (*)
+     ├── naga-types v30.0.2 (*)
+     ├── wgpu v30.0.2 (*)
+     ├── wgpu-core v30.0.2 (*)
+     └── wgpu-hal v30.0.2 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'jni-sys'
+   ┌─ /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/Cargo.lock:85:1
+   │  
+85 │ ╭ jni-sys 0.3.1 registry+https://github.com/rust-lang/crates.io-index
+86 │ │ jni-sys 0.4.1 registry+https://github.com/rust-lang/crates.io-index
+   │ ╰───────────────────────────────────────────────────────────────────┘ lock entries
+   │  
+   ├ jni-sys v0.3.1
+     ├── ndk v0.9.0
+     │   ├── android-activity v0.6.1
+     │   │   └── winit v0.30.13
+     │   │       └── (dev) cad-render v0.0.0
+     │   │           ├── cad-mcp v0.0.0
+     │   │           ├── cad-testkit v0.0.0
+     │   │           └── cad-ui v0.0.0
+     │   └── winit v0.30.13 (*)
+     └── ndk-sys v0.6.0+11769913
+         ├── android-activity v0.6.1 (*)
+         ├── ndk v0.9.0 (*)
+         └── wgpu-hal v30.0.2
+             ├── wgpu v30.0.2
+             │   └── cad-render v0.0.0 (*)
+             ├── wgpu-core v30.0.2
+             │   └── wgpu v30.0.2 (*)
+             ├── wgpu-core-deps-apple v30.0.2
+             │   └── wgpu-core v30.0.2 (*)
+             ├── wgpu-core-deps-emscripten v30.0.2
+             │   └── wgpu-core v30.0.2 (*)
+             └── wgpu-core-deps-windows-linux-android v30.0.2
+                 └── wgpu-core v30.0.2 (*)
+   ├ jni-sys v0.4.1
+     ├── jni v0.22.4
+     │   └── android-activity v0.6.1
+     │       └── winit v0.30.13
+     │           └── (dev) cad-render v0.0.0
+     │               ├── cad-mcp v0.0.0
+     │               ├── cad-testkit v0.0.0
+     │               └── cad-ui v0.0.0
+     └── jni-sys v0.3.1
+         ├── ndk v0.9.0
+         │   ├── android-activity v0.6.1 (*)
+         │   └── winit v0.30.13 (*)
+         └── ndk-sys v0.6.0+11769913
+             ├── android-activity v0.6.1 (*)
+             ├── ndk v0.9.0 (*)
+             └── wgpu-hal v30.0.2
+                 ├── wgpu v30.0.2
+                 │   └── cad-render v0.0.0 (*)
+                 ├── wgpu-core v30.0.2
+                 │   └── wgpu v30.0.2 (*)
+                 ├── wgpu-core-deps-apple v30.0.2
+                 │   └── wgpu-core v30.0.2 (*)
+                 ├── wgpu-core-deps-emscripten v30.0.2
+                 │   └── wgpu-core v30.0.2 (*)
+                 └── wgpu-core-deps-windows-linux-android v30.0.2
+                     └── wgpu-core v30.0.2 (*)
+
+warning[duplicate]: found 2 duplicate entries for crate 'miniz_oxide'
+    ┌─ /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/Cargo.lock:103:1
+    │  
+103 │ ╭ miniz_oxide 0.8.9 registry+https://github.com/rust-lang/crates.io-index
+104 │ │ miniz_oxide 0.9.1 registry+https://github.com/rust-lang/crates.io-index
+    │ ╰───────────────────────────────────────────────────────────────────────┘ lock entries
+    │  
+    ├ miniz_oxide v0.8.9
+      └── png v0.18.1
+          └── cad-render v0.0.0
+              ├── cad-mcp v0.0.0
+              ├── cad-testkit v0.0.0
+              └── cad-ui v0.0.0
+    ├ miniz_oxide v0.9.1
+      └── flate2 v1.1.11
+          └── png v0.18.1
+              └── cad-render v0.0.0
+                  ├── cad-mcp v0.0.0
+                  ├── cad-testkit v0.0.0
+                  └── cad-ui v0.0.0
+
+warning[duplicate]: found 2 duplicate entries for crate 'syn'
+    ┌─ /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/Cargo.lock:176:1
+    │  
+176 │ ╭ syn 2.0.119 registry+https://github.com/rust-lang/crates.io-index
+177 │ │ syn 3.0.10 registry+https://github.com/rust-lang/crates.io-index
+    │ ╰────────────────────────────────────────────────────────────────┘ lock entries
+    │  
+    ├ syn v2.0.119
+      ├── jni-macros v0.22.4
+      │   └── jni v0.22.4
+      │       └── android-activity v0.6.1
+      │           └── winit v0.30.13
+      │               └── (dev) cad-render v0.0.0
+      │                   ├── cad-mcp v0.0.0
+      │                   ├── cad-testkit v0.0.0
+      │                   └── cad-ui v0.0.0
+      ├── jni-sys-macros v0.4.1
+      │   └── jni-sys v0.4.1
+      │       ├── jni v0.22.4 (*)
+      │       └── jni-sys v0.3.1
+      │           ├── ndk v0.9.0
+      │           │   ├── android-activity v0.6.1 (*)
+      │           │   └── winit v0.30.13 (*)
+      │           └── ndk-sys v0.6.0+11769913
+      │               ├── android-activity v0.6.1 (*)
+      │               ├── ndk v0.9.0 (*)
+      │               └── wgpu-hal v30.0.2
+      │                   ├── wgpu v30.0.2
+      │                   │   └── cad-render v0.0.0 (*)
+      │                   ├── wgpu-core v30.0.2
+      │                   │   └── wgpu v30.0.2 (*)
+      │                   ├── wgpu-core-deps-apple v30.0.2
+      │                   │   └── wgpu-core v30.0.2 (*)
+      │                   ├── wgpu-core-deps-emscripten v30.0.2
+      │                   │   └── wgpu-core v30.0.2 (*)
+      │                   └── wgpu-core-deps-windows-linux-android v30.0.2
+      │                       └── wgpu-core v30.0.2 (*)
+      ├── num_enum_derive v0.7.6
+      │   └── num_enum v0.7.6
+      │       ├── android-activity v0.6.1 (*)
+      │       └── ndk v0.9.0 (*)
+      ├── pin-project-internal v1.1.13
+      │   └── pin-project v1.1.13
+      │       └── winit v0.30.13 (*)
+      ├── thiserror-impl v1.0.69
+      │   └── thiserror v1.0.69
+      │       ├── calloop v0.13.0
+      │       │   ├── calloop-wayland-source v0.3.0
+      │       │   │   └── smithay-client-toolkit v0.19.2
+      │       │   │       └── winit v0.30.13 (*)
+      │       │   ├── smithay-client-toolkit v0.19.2 (*)
+      │       │   └── winit v0.30.13 (*)
+      │       ├── ndk v0.9.0 (*)
+      │       └── smithay-client-toolkit v0.19.2 (*)
+      ├── windows-implement v0.60.2
+      │   └── windows-core v0.62.2
+      │       ├── wgpu-hal v30.0.2 (*)
+      │       ├── windows v0.62.2
+      │       │   ├── gpu-allocator v0.28.0
+      │       │   │   └── wgpu-hal v30.0.2 (*)
+      │       │   └── wgpu-hal v30.0.2 (*)
+      │       ├── windows-collections v0.3.2
+      │       │   └── windows v0.62.2 (*)
+      │       ├── windows-future v0.3.2
+      │       │   └── windows v0.62.2 (*)
+      │       └── windows-numerics v0.3.1
+      │           └── windows v0.62.2 (*)
+      ├── windows-interface v0.59.3
+      │   └── windows-core v0.62.2 (*)
+      └── zerocopy-derive v0.8.63
+          └── zerocopy v0.8.63
+              ├── ahash v0.8.12
+              │   └── winit v0.30.13 (*)
+              └── half v2.7.1
+                  └── naga v30.0.2
+                      ├── wgpu-core v30.0.2 (*)
+                      ├── wgpu-hal v30.0.2 (*)
+                      └── wgpu-naga-bridge v30.0.2
+                          ├── wgpu-core v30.0.2 (*)
+                          └── wgpu-hal v30.0.2 (*)
+    ├ syn v3.0.10
+      ├── bytemuck_derive v1.12.1
+      │   └── bytemuck v1.25.2
+      │       ├── cad-render v0.0.0
+      │       │   ├── cad-mcp v0.0.0
+      │       │   ├── cad-testkit v0.0.0
+      │       │   └── cad-ui v0.0.0
+      │       ├── wgpu v30.0.2
+      │       │   └── cad-render v0.0.0 (*)
+      │       ├── wgpu-core v30.0.2
+      │       │   └── wgpu v30.0.2 (*)
+      │       ├── wgpu-hal v30.0.2
+      │       │   ├── wgpu v30.0.2 (*)
+      │       │   ├── wgpu-core v30.0.2 (*)
+      │       │   ├── wgpu-core-deps-apple v30.0.2
+      │       │   │   └── wgpu-core v30.0.2 (*)
+      │       │   ├── wgpu-core-deps-emscripten v30.0.2
+      │       │   │   └── wgpu-core v30.0.2 (*)
+      │       │   └── wgpu-core-deps-windows-linux-android v30.0.2
+      │       │       └── wgpu-core v30.0.2 (*)
+      │       ├── wgpu-types v30.0.2
+      │       │   ├── wgpu v30.0.2 (*)
+      │       │   ├── wgpu-core v30.0.2 (*)
+      │       │   ├── wgpu-hal v30.0.2 (*)
+      │       │   └── wgpu-naga-bridge v30.0.2
+      │       │       ├── wgpu-core v30.0.2 (*)
+      │       │       └── wgpu-hal v30.0.2 (*)
+      │       └── winit v0.30.13
+      │           └── (dev) cad-render v0.0.0 (*)
+      ├── foreign-types-macros v0.2.4
+      │   └── foreign-types v0.5.0
+      │       └── core-graphics v0.23.2
+      │           └── winit v0.30.13 (*)
+      ├── thiserror-impl v2.0.21
+      │   └── thiserror v2.0.21
+      │       ├── android-activity v0.6.1
+      │       │   └── winit v0.30.13 (*)
+      │       ├── gpu-allocator v0.28.0
+      │       │   └── wgpu-hal v30.0.2 (*)
+      │       ├── jni v0.22.4
+      │       │   └── android-activity v0.6.1 (*)
+      │       ├── naga v30.0.2
+      │       │   ├── wgpu-core v30.0.2 (*)
+      │       │   ├── wgpu-hal v30.0.2 (*)
+      │       │   └── wgpu-naga-bridge v30.0.2 (*)
+      │       ├── naga-types v30.0.2
+      │       │   ├── naga v30.0.2 (*)
+      │       │   ├── wgpu-core v30.0.2 (*)
+      │       │   ├── wgpu-hal v30.0.2 (*)
+      │       │   └── wgpu-types v30.0.2 (*)
+      │       ├── wgpu-core v30.0.2 (*)
+      │       └── wgpu-hal v30.0.2 (*)
+      └── wasm-bindgen-macro-support v0.2.130
+          └── wasm-bindgen-macro v0.2.130
+              └── wasm-bindgen v0.2.130
+                  ├── glow v0.17.0
+                  │   └── wgpu-hal v30.0.2 (*)
+                  ├── js-sys v0.3.107
+                  │   ├── glow v0.17.0 (*)
+                  │   ├── wasm-bindgen-futures v0.4.80
+                  │   │   ├── wgpu v30.0.2 (*)
+                  │   │   └── winit v0.30.13 (*)
+                  │   ├── web-sys v0.3.107
+                  │   │   ├── glow v0.17.0 (*)
+                  │   │   ├── wgpu v30.0.2 (*)
+                  │   │   ├── wgpu-hal v30.0.2 (*)
+                  │   │   ├── wgpu-types v30.0.2 (*)
+                  │   │   └── winit v0.30.13 (*)
+                  │   ├── web-time v1.1.0
+                  │   │   └── winit v0.30.13 (*)
+                  │   ├── wgpu v30.0.2 (*)
+                  │   ├── wgpu-hal v30.0.2 (*)
+                  │   ├── wgpu-types v30.0.2 (*)
+                  │   └── winit v0.30.13 (*)
+                  ├── wasm-bindgen-futures v0.4.80 (*)
+                  ├── web-sys v0.3.107 (*)
+                  ├── web-time v1.1.0 (*)
+                  ├── wgpu v30.0.2 (*)
+                  ├── wgpu-hal v30.0.2 (*)
+                  └── winit v0.30.13 (*)
+

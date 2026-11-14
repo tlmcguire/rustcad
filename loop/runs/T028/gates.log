@@ -1,0 +1,15 @@
+comparing with 957126c
+
+== format ==
+Diff in /Users/tyler/Projects/rustcad/target/loop/worktrees/T028/crates/cad-math/tests/vec3_distance_midpoint.rs:10:
+     vec![
+         (Vec3::new(1.5, -2.25, 7.0), Vec3::new(-3.0, 4.5, 0.125)),
+         (Vec3::new(-10.0, 0.0, 3.3), Vec3::new(2.0, -8.8, -1.1)),
+-        (Vec3::new(1234.5, -678.9, 0.001), Vec3::new(-0.5, 99.0, -250.0)),
++        (
++            Vec3::new(1234.5, -678.9, 0.001),
++            Vec3::new(-0.5, 99.0, -250.0),
++        ),
+         (Vec3::new(0.1, 0.2, 0.3), Vec3::new(0.3, 0.2, 0.1)),
+     ]
+ }

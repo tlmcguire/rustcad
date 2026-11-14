@@ -142,6 +142,7 @@ pub struct Renderer {
     edges: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    planes_layout: wgpu::BindGroupLayout,
     adapter: String,
     mode: AtomicU8,
 }
@@ -151,6 +152,8 @@ pub struct Renderer {
 pub struct Scene {
     face_vertices: wgpu::Buffer,
     face_vertex_count: u32,
+    /// The plane of each drawn triangle, from which faces take their depth.
+    planes: wgpu::BindGroup,
     edge_vertices: Option<wgpu::Buffer>,
     edge_vertex_count: u32,
     /// Vertex positions are stored relative to this point, the centre of the mesh's bounds,
@@ -293,9 +296,30 @@ impl Renderer {
             bind_group_layouts: &[Some(&bind_layout)],
             immediate_size: 0,
         });
+        // Faces also read the plane of their triangle, to compute depth exactly.
+        let planes_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cad-render planes"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let face_layout_with_planes =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("cad-render faces"),
+                bind_group_layouts: &[Some(&bind_layout), Some(&planes_layout)],
+                immediate_size: 0,
+            });
 
         // `additive`: the overdraw pipeline, which adds colour, ignores depth, and writes no IDs.
         let pipeline = |label,
+                        layout: &wgpu::PipelineLayout,
                         vertex: (&str, wgpu::VertexBufferLayout<'_>),
                         fragment,
                         topology,
@@ -319,7 +343,7 @@ impl Renderer {
             };
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
-                layout: Some(&layout),
+                layout: Some(layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some(vertex.0),
@@ -367,6 +391,7 @@ impl Renderer {
         };
         let faces = pipeline(
             "cad-render faces",
+            &face_layout_with_planes,
             ("face_vs", face_layout()),
             "face_fs",
             wgpu::PrimitiveTopology::TriangleList,
@@ -374,6 +399,7 @@ impl Renderer {
         );
         let overdraw = pipeline(
             "cad-render overdraw",
+            &layout,
             ("face_vs", face_layout()),
             "overdraw_fs",
             wgpu::PrimitiveTopology::TriangleList,
@@ -381,6 +407,7 @@ impl Renderer {
         );
         let edges = pipeline(
             "cad-render edges",
+            &layout,
             (
                 "edge_vs",
                 wgpu::VertexBufferLayout {
@@ -402,6 +429,7 @@ impl Renderer {
             edges,
             globals,
             bind_group,
+            planes_layout,
             adapter,
             mode: AtomicU8::new(ViewMode::default().code()),
         }
@@ -458,28 +486,42 @@ impl Renderer {
         mesh: &Mesh,
         colors: &[[u8; 3]],
     ) -> Result<Scene, RenderError> {
-        let max = self.device.limits().max_buffer_size;
-        let fits = |bytes: u64, what: &str| {
-            if bytes <= max {
-                Ok(())
-            } else {
-                Err(RenderError::InvalidMesh(format!(
-                    "{what} need {} MiB of vertex data; the device allows {} MiB per buffer",
-                    bytes >> 20,
-                    max >> 20
-                )))
-            }
-        };
+        let limits = self.device.limits();
+        let fits = |bytes, what: &str| within(bytes, limits.max_buffer_size, what);
         let triangles = u64::try_from(mesh.triangles.len()).unwrap_or(u64::MAX);
         fits(
             triangles.saturating_mul(3 * FACE_VERTEX_BYTES),
             &format!("{triangles} triangles"),
         )?;
+        let plane_bytes = triangles.saturating_mul(PLANE_BYTES);
+        let planes_of = format!("the planes of {triangles} triangles");
+        fits(plane_bytes, &planes_of)?;
+        within(
+            plane_bytes,
+            limits.max_storage_buffer_binding_size,
+            &planes_of,
+        )?;
         let Prepared {
             words: faces,
+            planes,
             kept,
             origin,
         } = prepare(mesh, colors)?;
+        let plane_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("cad-render planes"),
+                contents: bytemuck::cast_slice(&planes),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        let planes = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cad-render planes"),
+            layout: &self.planes_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: plane_buffer.as_entire_binding(),
+            }],
+        });
         let face_vertices = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -518,6 +560,7 @@ impl Renderer {
         };
         Ok(Scene {
             face_vertices,
+            planes,
             face_vertex_count: count(faces.len(), FACE_VERTEX_WORDS)?,
             edge_vertices,
             edge_vertex_count: count(lines.len(), 3)?,
@@ -585,13 +628,22 @@ impl Renderer {
             camera.eye.z as f32,
             pull as f32,
         ];
+        // For rebuilding each pixel's view ray in the fragment shader.
+        #[allow(clippy::cast_possible_truncation)]
+        let viewport = [
+            targets.width as f32,
+            targets.height as f32,
+            (camera.fov_y / 2.0).tan() as f32,
+            aspect as f32,
+        ];
         let values = view_proj
             .iter()
             .chain(&view)
             .flatten()
             .chain(&params)
             .chain(&EDGE_COLOR)
-            .chain(&eye_pull);
+            .chain(&eye_pull)
+            .chain(&viewport);
         for (slot, value) in globals.iter_mut().zip(values) {
             *slot = *value;
         }
@@ -638,6 +690,7 @@ impl Renderer {
                 ..Default::default()
             });
             pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_bind_group(1, &scene.planes, &[]);
             pass.set_pipeline(if mode == ViewMode::Overdraw {
                 &self.overdraw
             } else {
@@ -831,9 +884,10 @@ impl Renderer {
     }
 }
 
-/// Two matrices, the shading parameters, the edge colour, and the eye with the edge pull.
-const GLOBALS_WORDS: usize = 44;
-const GLOBALS_BYTES: u64 = 176;
+/// Two matrices, the shading parameters, the edge colour, the eye with the edge pull, and the
+/// viewport.
+const GLOBALS_WORDS: usize = 48;
+const GLOBALS_BYTES: u64 = 192;
 
 /// How far edges are drawn in front of their faces, in pixels of depth at the edge's distance.
 ///
@@ -859,6 +913,38 @@ fn local(p: Vec3, origin: Vec3) -> [f32; 3] {
     [d.x as f32, d.y as f32, d.z as f32]
 }
 
+/// The plane through `point` with unit normal `n`, in single precision. Coplanar triangles of
+/// different faces get the same four numbers, so the depth computed from them is the same to
+/// the bit, and flush faces tie exactly instead of speckling.
+#[allow(clippy::cast_possible_truncation)]
+fn plane(n: Vec3, point: Vec3) -> [f32; 4] {
+    // Canonical sign: the first nonzero component positive, so a plane seen from either side
+    // is stored the same way.
+    let flip = if n.x < 0.0 || (n.x == 0.0 && (n.y < 0.0 || (n.y == 0.0 && n.z < 0.0))) {
+        -1.0
+    } else {
+        1.0
+    };
+    let n = n * flip;
+    [n.x as f32, n.y as f32, n.z as f32, n.dot(point) as f32]
+}
+
+/// Bytes of plane data per drawn triangle.
+const PLANE_BYTES: u64 = 16;
+
+/// An error unless `bytes` of `what` fit in the device's limit of `max` bytes.
+fn within(bytes: u64, max: u64, what: &str) -> Result<(), RenderError> {
+    if bytes <= max {
+        Ok(())
+    } else {
+        Err(RenderError::InvalidMesh(format!(
+            "{what} need {} MiB; the device allows {} MiB per buffer",
+            bytes >> 20,
+            max >> 20
+        )))
+    }
+}
+
 /// A triangle whose height is under this fraction of its longest side has no area to draw.
 const DEGENERATE: f64 = 1e-9;
 
@@ -866,6 +952,9 @@ const DEGENERATE: f64 = 1e-9;
 struct Prepared {
     /// Eight words per vertex, three vertices per drawn triangle.
     words: Vec<u32>,
+    /// Four floats per drawn triangle: its unit normal `n` and offset `c`, with `n . p = c`
+    /// for points `p` relative to the origin.
+    planes: Vec<f32>,
     /// Indices of the triangles drawn.
     kept: Vec<usize>,
     /// The point vertex positions are relative to.
@@ -899,6 +988,7 @@ fn prepare(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Prepared, RenderError> {
 
     let mut words = Vec::with_capacity(mesh.triangles.len() * 3 * FACE_VERTEX_WORDS);
     let mut kept = Vec::with_capacity(mesh.triangles.len());
+    let mut planes = Vec::with_capacity(mesh.triangles.len() * 4);
     for (k, (triangle, face)) in mesh.triangles.iter().zip(&mesh.triangle_faces).enumerate() {
         let corners = [
             position(mesh, triangle[0])?,
@@ -939,6 +1029,7 @@ fn prepare(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Prepared, RenderError> {
             words.push(face.0);
             words.push(color);
         }
+        planes.extend(plane(flat, corners[0] - origin));
         kept.push(k);
     }
     if kept.is_empty() {
@@ -946,6 +1037,7 @@ fn prepare(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Prepared, RenderError> {
     }
     Ok(Prepared {
         words,
+        planes,
         kept,
         origin,
     })
@@ -1354,5 +1446,98 @@ mod tests {
         let frame = renderer.render(&renderer.upload(&mesh)?, &moved, SIZE, SIZE)?;
         assert_eq!(frame.ids, near.ids);
         Ok(())
+    }
+
+    /// A 2 x 2 mm square at the origin facing +Z, split into `n x n` cells, all face `face`.
+    /// `flip` picks the other diagonal and reverses the winding.
+    fn square(mesh: &mut Mesh, n: u32, flip: bool, face: u32) {
+        let base = u32::try_from(mesh.positions.len()).unwrap_or(u32::MAX);
+        for j in 0..=n {
+            for i in 0..=n {
+                let step = 2.0 / f64::from(n);
+                mesh.positions.push(Vec3::new(
+                    -1.0 + f64::from(i) * step,
+                    -1.0 + f64::from(j) * step,
+                    0.0,
+                ));
+                mesh.normals.push(Vec3::Z);
+            }
+        }
+        let row = n + 1;
+        for j in 0..n {
+            for i in 0..n {
+                let a = base + j * row + i;
+                let (b, c, d) = (a + 1, a + row + 1, a + row);
+                let pair = if flip {
+                    [[a, d, b], [b, d, c]]
+                } else {
+                    [[a, b, c], [a, c, d]]
+                };
+                mesh.triangles.extend(pair);
+                mesh.triangle_faces.extend([FaceIndex(face); 2]);
+            }
+        }
+    }
+
+    #[test]
+    fn plane_signs_are_canonical() {
+        let p = Vec3::new(1.0, 2.0, 3.0);
+        assert_eq!(plane(Vec3::Z, p), [0.0, 0.0, 1.0, 3.0]);
+        assert_eq!(plane(-Vec3::Z, p), [0.0, 0.0, 1.0, 3.0]);
+        assert_eq!(plane(-Vec3::Y, p), [0.0, 1.0, 0.0, 2.0]);
+        assert_eq!(plane(-Vec3::X, p), [1.0, 0.0, 0.0, 1.0]);
+        // The first nonzero component decides, even when a later one is negative.
+        let tilted = Vec3::new(0.6, -0.8, 0.0);
+        assert_eq!(plane(tilted, p), [0.6, -0.8, 0.0, -1.0]);
+        let tilted = Vec3::new(0.0, 0.6, -0.8);
+        assert_eq!(plane(tilted, p), [0.0, 0.6, -0.8, -1.2]);
+    }
+
+    #[test]
+    fn coplanar_triangles_of_different_faces_get_identical_planes() -> TestResult {
+        let mut mesh = Mesh::default();
+        square(&mut mesh, 1, false, 0);
+        square(&mut mesh, 3, true, 1);
+        let planes = prepare(&mesh, &[])?.planes;
+        assert_eq!(planes.len(), (2 + 18) * 4);
+        for plane in planes.chunks_exact(4) {
+            assert_eq!(plane, [0.0, 0.0, 1.0, 0.0]);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn flush_faces_with_different_triangles_do_not_speckle() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let mut mesh = Mesh::default();
+        square(&mut mesh, 1, false, 0);
+        square(&mut mesh, 7, true, 1);
+        let scene = renderer.upload(&mesh)?;
+        let camera = Camera {
+            eye: Vec3::new(3.0, -4.0, 6.0),
+            up: Vec3::Z,
+            ..camera()
+        };
+        let frame = renderer.render(&scene, &camera, SIZE, SIZE)?;
+        let covered: Vec<u32> = frame.ids.iter().copied().filter(|id| *id != 0).collect();
+        assert!(covered.len() > 500, "{} pixels covered", covered.len());
+        // Face 1 is drawn after face 0, so it wins every exact tie.
+        assert!(covered.iter().all(|id| *id == 2), "face 0 showed through");
+        Ok(())
+    }
+
+    #[test]
+    fn data_must_fit_the_device_limit() {
+        assert!(within(1 << 20, 1 << 20, "x").is_ok());
+        assert!(within(0, 0, "x").is_ok());
+        match within((3 << 20) + 1, 2 << 20, "the planes") {
+            Err(RenderError::InvalidMesh(m)) => {
+                assert_eq!(
+                    m,
+                    "the planes need 3 MiB; the device allows 2 MiB per buffer"
+                );
+            }
+            other => panic!("expected InvalidMesh, got {other:?}"),
+        }
     }
 }

@@ -133,7 +133,12 @@ and a zero-length normal is replaced by its triangle's own. Each frame is one pa
 32-bit depth buffer that writes two images at once: the picture, and a face ID buffer
 holding the face number under every pixel. Depth is stored reversed, 1 at the near plane and
 0 at the far plane. Floating point numbers are densest near zero, so that spends their
-precision on distant surfaces, which the perspective divide leaves with the least of it. Picking reads
+precision on distant surfaces, which the perspective divide leaves with the least of it.
+Depth is not interpolated across each triangle, either. The fragment shader rebuilds the
+pixel's view ray and meets it with the triangle's plane, kept in a storage buffer. So two
+faces in exactly the same place get the same depth to the bit, and the face drawn later wins
+every pixel instead of the two speckling. That costs early depth rejection: frames take
+about 10% longer for a dense knot, and a third longer for a cloud of overlapping cubes. Picking reads
 that second image, so clicking is exact to the pixel. Face boundaries, found on the CPU when
 the mesh is uploaded, are drawn last as lines, pulled 1.5 pixels' worth of depth toward the
 eye so they stay in front of their own faces.
@@ -210,11 +215,11 @@ triangles are smaller than a pixel even at 25× and the ripple is smooth.
 
 | Triangles | Upload | Frame | Wrong pixels |
 |---:|---:|---:|---:|
-| 1 M | 0.2 s | 3.3 ms | 0 |
-| 2 M | 0.3 s | 4.6 ms | 0 |
-| 4 M | 0.8 s | 8.2 ms | 0 |
-| 8 M | 1.9 s | 15.0 ms | 0 |
-| 16 M | 5.6 s | 27.4 ms | 0 |
+| 1 M | 0.1 s | 4.3 ms | 0 |
+| 2 M | 0.3 s | 5.6 ms | 0 |
+| 4 M | 0.8 s | 9.5 ms | 0 |
+| 8 M | 2.1 s | 16.6 ms | 0 |
+| 16 M | 6.2 s | 30.1 ms | 0 |
 
 All five pass. Drawing scales close to linearly with the triangle count, but upload is slow.
 It copies every triangle's three vertices out separately and sorts every triangle side to
@@ -228,7 +233,7 @@ error.
 
 A spiral galaxy of 128,000 and then **512,000 separate bodies**, each its own pick target:
 6.1 million triangles and half a million distinct face IDs. Both pass. The Faces view shows
-every body in its own colour, and the large case draws in 32 ms.
+every body in its own colour, and the large case draws in 43 ms.
 
 ### Depth range: `depth`
 
@@ -257,16 +262,14 @@ A blue block, with a second body: a lid lying flush on its top with the same tri
 orange block overlapping it with tops and fronts flush, and a white label 0.001 mm or
 0.00001 mm above its top.
 
-**Two of the four cases fail.**
-- **Flush lid, same triangles:** passes. The body drawn second wins everywhere.
-- **Overlapping bodies, flush faces:** the two faces speckle. 40% of the shared area shows
-  the "losing" body, in orange-and-blue blotches in the Lit view itself. Bodies that touch
-  in an assembly will do this. More depth precision cannot help, because the two faces are
-  exactly in the same place: the fix is a rule for which body wins a tie.
-- **Label 0.001 mm up:** passes.
-- **Label 0.00001 mm up:** 15% of the block's pixels pick the wrong face, and the label
-  breaks into islands. Ten nanometres at 19 cm is about one part in 19 million of the
-  distance, below what a 32-bit float can resolve.
+**All four cases pass.** Where the two bodies share a face, the body drawn later wins every
+pixel, and the 0.00001 mm label is drawn whole.
+
+Before depth came from each triangle's plane, the overlapping bodies speckled: 40% of the
+shared area showed the "losing" body, in orange-and-blue blotches. More precision could not
+have helped, because the faces are in exactly the same place; the two triangulations simply
+rounded their interpolated depth differently. The 0.00001 mm label, about one part in 19
+million of the distance, broke into islands on 15% of the block's pixels.
 
 ### Slivers and bad input: `slivers`
 
@@ -294,11 +297,10 @@ faces black.
 An open-topped 40 mm box, blue outside, red inside, with a yellow rim. Red must never show
 through blue.
 
-**One of the four cases fails.** Walls of 1 mm and 0.01 mm are correct, and so is the
-0.01 mm wall with clip planes left loose at 0.1 mm to 100 m, which leaked red on 3.1% of the
-box's pixels before depth was reversed. A 0.0001 mm wall still leaks, on 3.6%: a tenth of a
-micrometre at 13 cm is about one part in a million of the distance, at the edge of what
-32-bit depth can tell apart.
+**All four cases pass.** Walls down to a tenth of a micrometre, about one part in a million
+of the viewing distance, show no red, even with the clip planes left loose at 0.1 mm to
+100 m. Before these fixes, the 0.0001 mm wall leaked red on 3.6% of the box's pixels, and the
+0.01 mm wall with loose clip planes on 3.1%.
 
 ### Picking at the pixel limit: `picking`
 

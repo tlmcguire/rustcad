@@ -13,9 +13,14 @@ struct Globals {
     edge_color: vec4<f32>,
     // Eye position, and the fraction of its distance an edge vertex moves toward it.
     eye_pull: vec4<f32>,
+    // Target width and height in pixels, tan of half the vertical field of view, aspect.
+    viewport: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
+
+// The plane of each triangle: unit normal in xyz, offset in w, so dot(n, p) = w.
+@group(1) @binding(0) var<storage, read> planes: array<vec4<f32>>;
 
 struct FaceInput {
     @builtin(vertex_index) vertex: u32,
@@ -45,6 +50,43 @@ struct Output {
     // Face index plus one. Zero means background.
     @location(1) id: u32,
 };
+
+struct FaceOutput {
+    @location(0) color: vec4<f32>,
+    @location(1) id: u32,
+    @builtin(frag_depth) depth: f32,
+};
+
+// The depth of this pixel's view ray where it meets the triangle's plane.
+//
+// Interpolating depth across a triangle rounds differently for every triangulation, so two
+// faces in the same place disagree in the last bits and speckle. This uses only the pixel
+// position and the plane, so coplanar faces get the same depth to the bit and tie exactly;
+// the depth test then lets the face drawn later win everywhere, as it does for identical
+// triangles. Near grazing angles it falls back to the interpolated depth.
+fn plane_depth(in: FaceVarying) -> f32 {
+    let plane = planes[in.triangle];
+    let ndc = vec2<f32>(
+        2.0 * in.clip.x / globals.viewport.x - 1.0,
+        1.0 - 2.0 * in.clip.y / globals.viewport.y,
+    );
+    let v = globals.view;
+    let side = vec3<f32>(v[0].x, v[1].x, v[2].x);
+    let up = vec3<f32>(v[0].y, v[1].y, v[2].y);
+    let back = vec3<f32>(v[0].z, v[1].z, v[2].z);
+    let tan_y = globals.viewport.z;
+    // One unit forward, so the distance along the ray is the distance in front of the eye.
+    let ray = side * (ndc.x * tan_y * globals.viewport.w) + up * (ndc.y * tan_y) - back;
+    let facing = dot(plane.xyz, ray);
+    let ahead = (plane.w - dot(plane.xyz, globals.eye_pull.xyz)) / facing;
+    if abs(facing) < 1e-4 || !(ahead > 0.0) {
+        return in.clip.z;
+    }
+    // Reversed depth: 1 at the near plane, 0 at the far plane, as in Camera::matrices.
+    let near = globals.params.y;
+    let far = globals.params.z;
+    return clamp((near * far / ahead - near) / (far - near), 0.0, 1.0);
+}
 
 @vertex
 fn face_vs(in: FaceInput) -> FaceVarying {
@@ -91,7 +133,7 @@ fn ramp(t: f32) -> vec3<f32> {
 }
 
 @fragment
-fn face_fs(in: FaceVarying) -> Output {
+fn face_fs(in: FaceVarying) -> FaceOutput {
     // Headlight: brightest where the surface faces the camera. `abs` keeps
     // faces with flipped normals visible instead of black.
     let n = normalize(in.view_normal);
@@ -129,9 +171,10 @@ fn face_fs(in: FaceVarying) -> Output {
         }
         default: {}
     }
-    var out: Output;
+    var out: FaceOutput;
     out.color = vec4<f32>(rgb, 1.0);
     out.id = in.face + 1u;
+    out.depth = plane_depth(in);
     return out;
 }
 

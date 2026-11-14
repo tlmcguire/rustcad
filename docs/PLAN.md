@@ -635,18 +635,51 @@ This is the hardest design problem in the app. FreeCAD's history shows the cost 
 
 ### 9.1 Renderer
 
-Built on wgpu **[verify current API]**.
+Built on wgpu. Viewing a model in the highest quality is a first-class goal, not a later
+polish step (D14): the renderer is built out before the Phase 1 modeling work depends on it.
 
-1. Shaded faces with a clean matcap-style default. Optional PBR later.
-2. Crisp silhouette and feature edges.
+**Interactive quality**
+
+1. Physically based shading (metallic-roughness) with image-based lighting from an
+   environment map, and a clean neutral default look. Matcap remains as a fast mode.
+2. Crisp silhouette and feature edges, stable under zoom, with no dashing or speckle.
 3. Hidden-line and wireframe modes.
 4. Section planes with capped cuts.
 5. Selection and hover highlighting.
 6. Sketch overlay with constraint glyphs and dimensions.
 7. Gizmos and construction geometry.
 8. Order-independent transparency for ghosted previews.
-9. Anti-aliasing.
-10. Offscreen rendering to PNG for the CLI, MCP, and tests.
+9. Anti-aliasing: MSAA, with a temporal or analytic method where MSAA is not enough.
+10. Shadows (cascaded or similar for directional light) and ambient occlusion.
+11. Depth precision that holds for large and small parts together: reversed or
+    per-triangle-plane depth, so flush and coplanar faces resolve exactly.
+
+**Lighting beyond real time**
+
+12. Baked lighting: ambient occlusion and lighting computed once per body and stored per
+    vertex or in textures, refreshed when the body changes.
+13. Ray tracing: ray-traced shadows and AO where the GPU supports it, and an offline
+    progressive path tracer for still images that converges to a reference render.
+    Real-time and baked results are always labelled as such.
+
+**Technical views**
+
+14. View modes that show how the renderer works, in the spirit of engine debug views:
+    per-triangle colour, per-face and per-body ID colour (the picking buffer), wireframe
+    overlay, overdraw heat, depth, normals, and tessellation density.
+
+**Viewing and output**
+
+15. Orbit, pan, and zoom-to-cursor navigation, with fit-to-view and standard views.
+16. Offscreen rendering to PNG for the CLI, MCP, and tests, at any resolution, including
+    path-traced stills.
+
+**Verification**
+
+17. A torture suite of scenes (dense meshes, extreme depth range, coplanar faces,
+    slivers, thin walls, many bodies, long boolean chains) with measured checks for
+    correctness and frame time, plus snapshot tests on every CI platform (software
+    adapters on headless runners).
 
 ### 9.2 Picking
 

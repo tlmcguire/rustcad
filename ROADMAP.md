@@ -11,7 +11,7 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] `cad-math`: `Vec3`, `Tolerance`
 - [x] `cad-kernel`: Phase 0 `Kernel` trait and `HistoryMap` types
 - [x] License: GPL-3.0-or-later, `LICENSE` added (D12)
-- [ ] Verify the items in `docs/PLAN.md`, section 17.3
+- [x] Verify the items in `docs/PLAN.md`, section 17.3 (`docs/reports/phase0-verification.md`)
 - [x] T001 Reference kernel for analytic boxes (test double)
 - [x] T002 Golden geometry harness
 - [x] T003 OCCT build and minimal binding spike
@@ -20,8 +20,9 @@ Full phases and exit criteria: `docs/PLAN.md`, section 13.
 - [x] T006 Topological naming spike
 - [x] T007 Snapshot harness: headless renders checked against reference images under `cargo test`
 - [x] T008 BRep and STEP exchange with a golden round trip (passes locally; CI not yet run on a host)
-- [ ] Determinism, performance, coverage, mutation, and API-diff gates
-- [ ] Loop orchestrator
+- [x] Determinism, performance, coverage, mutation, and API-diff gates
+- [ ] Loop orchestrator (`scripts/loop.py`, roles in `loop/roles/`)
+- [ ] T028 Vec3 distance and midpoint: first task run end to end by the loop
 - [x] First task specs drafted (`tasks/backlog/`, T009 to T027)
 
 Exit: all spikes have reports. A STEP round trip runs in CI. The loop completes one trivial task unaided.

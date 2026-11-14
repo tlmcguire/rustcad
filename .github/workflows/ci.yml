@@ -51,6 +51,23 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # Under Git Bash, Git's own `link` (a Unix tool) comes before MSVC's linker on PATH,
+      # so point Cargo at MSVC's link.exe by its full path.
+      - name: Use the MSVC linker
+        if: runner.os == 'Windows'
+        run: |
+          linker="${VCToolsInstallDir}bin\\Hostx64\\x64\\link.exe"
+          test -f "$(cygpath -u "$linker")" || { echo "no MSVC linker at $linker"; exit 1; }
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linker" >> "$GITHUB_ENV"
+
+      # Hosted Linux runners have no GPU. Mesa's lavapipe is a software Vulkan driver that
+      # wgpu uses like any adapter, so the render tests run there too.
+      - name: Software Vulkan driver
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+
       # OCCT is built from the pinned source once per platform and build-script version.
       # Restore and save are separate steps so a build is cached as soon as it finishes,
       # even when a later gate fails the job.

@@ -807,11 +807,12 @@ fn invalid_input(renderer: &Renderer) -> DynResult<Vec<Check>> {
         rejected("an infinite vertex position is rejected", inf),
     ];
 
-    // Zero-length normals: rejected, or still shaded rather than drawn black.
+    // Zero-length normals: rejected, or still shaded rather than drawn black. The Faces view
+    // lights faces by their normals and draws no edges, so every face pixel counts.
     let mut flat = quad();
     flat.normals.iter_mut().for_each(|n| *n = Vec3::ZERO);
     let camera = Camera::framing(Vec3::ZERO, 15.0, Vec3::new(0.3, -0.4, 1.0))?;
-    renderer.set_view_mode(ViewMode::Lit);
+    renderer.set_view_mode(ViewMode::Faces);
     let check = match renderer.upload(&flat) {
         Err(e) => Check::new(
             "zero-length normals are rejected or shaded",
@@ -820,6 +821,7 @@ fn invalid_input(renderer: &Renderer) -> DynResult<Vec<Check>> {
         ),
         Ok(scene) => {
             let frame = renderer.render(&scene, &camera, 200, 200)?;
+            renderer.set_view_mode(ViewMode::Lit);
             let lit: Vec<[u8; 4]> = (0..200 * 200)
                 .filter(|k| frame.ids[*k as usize] != 0)
                 .filter_map(|k| frame.image.pixel(k % 200, k / 200))

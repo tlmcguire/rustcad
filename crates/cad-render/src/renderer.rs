@@ -2,11 +2,12 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc;
 
 use cad_kernel::{FaceIndex, Mesh};
+use cad_math::Vec3;
 use wgpu::util::DeviceExt;
 
 use crate::camera::Camera;
 use crate::image::{Frame, Image, decode_id};
-use crate::{RenderError, edges::feature_edges};
+use crate::{RenderError, edges::boundary_edges};
 
 /// Colour format of offscreen renders.
 pub const OFFSCREEN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -152,6 +153,10 @@ pub struct Scene {
     face_vertex_count: u32,
     edge_vertices: Option<wgpu::Buffer>,
     edge_vertex_count: u32,
+    /// Vertex positions are stored relative to this point, the centre of the mesh's bounds,
+    /// so a small part far from the world origin keeps the precision of single floats.
+    origin: Vec3,
+    skipped: u32,
 }
 
 impl Scene {
@@ -165,6 +170,14 @@ impl Scene {
     #[must_use]
     pub fn edge_count(&self) -> u32 {
         self.edge_vertex_count / 2
+    }
+
+    /// Number of triangles left out because they have no area: zero area, or a height under
+    /// a billionth of their longest side. They could never be seen, and a GPU could still
+    /// rasterize a pixel or two of them and let them be picked.
+    #[must_use]
+    pub fn skipped_triangles(&self) -> u32 {
+        self.skipped
     }
 }
 
@@ -323,7 +336,8 @@ impl Renderer {
                     depth_compare: Some(if additive {
                         wgpu::CompareFunction::Always
                     } else {
-                        wgpu::CompareFunction::LessEqual
+                        // Reversed depth: 1 at the near plane, 0 at the far plane.
+                        wgpu::CompareFunction::GreaterEqual
                     }),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
@@ -430,11 +444,15 @@ impl Renderer {
     /// `i`. Faces past the end of `colors` get [`DEFAULT_FACE_COLOR`]. Face boundaries become
     /// the drawn edges.
     ///
+    /// Triangles without area are left out (see [`Scene::skipped_triangles`]), and a
+    /// zero-length or non-finite vertex normal is replaced by its triangle's own normal.
+    ///
     /// # Errors
     ///
-    /// Returns [`RenderError::InvalidMesh`] when the mesh is empty, its arrays disagree in
-    /// length, a triangle refers to a vertex that does not exist, or the mesh needs a larger
-    /// vertex buffer than the device allows.
+    /// Returns [`RenderError::InvalidMesh`] when the mesh is empty or has no triangle with
+    /// area, its arrays disagree in length, a vertex position is not finite, a triangle refers
+    /// to a vertex that does not exist, or the mesh needs a larger vertex buffer than the
+    /// device allows.
     pub fn upload_with_colors(
         &self,
         mesh: &Mesh,
@@ -457,7 +475,11 @@ impl Renderer {
             triangles.saturating_mul(3 * FACE_VERTEX_BYTES),
             &format!("{triangles} triangles"),
         )?;
-        let faces = face_vertex_words(mesh, colors)?;
+        let Prepared {
+            words: faces,
+            kept,
+            origin,
+        } = prepare(mesh, colors)?;
         let face_vertices = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -467,10 +489,12 @@ impl Renderer {
             });
 
         let mut lines: Vec<f32> = Vec::new();
-        for [a, b] in feature_edges(mesh) {
+        let drawn = kept
+            .iter()
+            .map(|&k| (&mesh.triangles[k], &mesh.triangle_faces[k]));
+        for [a, b] in boundary_edges(drawn) {
             for index in [a, b] {
-                let p = position(mesh, index)?;
-                lines.extend(p);
+                lines.extend(local(position(mesh, index)?, origin));
             }
         }
         fits(
@@ -497,6 +521,8 @@ impl Renderer {
             face_vertex_count: count(faces.len(), FACE_VERTEX_WORDS)?,
             edge_vertices,
             edge_vertex_count: count(lines.len(), 3)?,
+            origin,
+            skipped: count(mesh.triangles.len() - kept.len(), 1)?,
         })
     }
 
@@ -533,6 +559,13 @@ impl Renderer {
         targets: &Targets,
     ) -> Result<(), RenderError> {
         let aspect = f64::from(targets.width) / f64::from(targets.height);
+        // The scene's vertices are relative to its origin; move the camera the same way, in
+        // double precision, so the matrices never carry large coordinates.
+        let camera = &Camera {
+            eye: camera.eye - scene.origin,
+            target: camera.target - scene.origin,
+            ..*camera
+        };
         let (view, view_proj) = camera.matrices(aspect)?;
         let mode = self.view_mode();
         let mut globals = [0.0_f32; GLOBALS_WORDS];
@@ -597,7 +630,7 @@ impl Renderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &targets.depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: wgpu::LoadOp::Clear(0.0),
                         store,
                     }),
                     stencil_ops: None,
@@ -811,50 +844,111 @@ const GLOBALS_BYTES: u64 = 176;
 /// and lets a hidden edge show through only when it is within this much of the front face.
 const EDGE_PULL_PX: f64 = 1.5;
 
-fn position(mesh: &Mesh, index: u32) -> Result<[f32; 3], RenderError> {
-    let p = usize::try_from(index)
+fn position(mesh: &Mesh, index: u32) -> Result<Vec3, RenderError> {
+    usize::try_from(index)
         .ok()
         .and_then(|i| mesh.positions.get(i))
-        .ok_or_else(|| RenderError::InvalidMesh(format!("vertex {index} does not exist")))?;
-    // The GPU works in single precision.
-    Ok([p.x as f32, p.y as f32, p.z as f32])
+        .copied()
+        .ok_or_else(|| RenderError::InvalidMesh(format!("vertex {index} does not exist")))
 }
 
-/// Expands a mesh to three independent vertices per triangle, eight words each: position and
-/// normal as float bits, the face index, and the face's sRGB colour packed as RGBA bytes.
-fn face_vertex_words(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Vec<u32>, RenderError> {
-    let invalid = |what: &str| Err(RenderError::InvalidMesh(what.into()));
+/// A position relative to `origin`, in single precision for the GPU.
+#[allow(clippy::cast_possible_truncation)]
+fn local(p: Vec3, origin: Vec3) -> [f32; 3] {
+    let d = p - origin;
+    [d.x as f32, d.y as f32, d.z as f32]
+}
+
+/// A triangle whose height is under this fraction of its longest side has no area to draw.
+const DEGENERATE: f64 = 1e-9;
+
+/// What upload makes of a mesh.
+struct Prepared {
+    /// Eight words per vertex, three vertices per drawn triangle.
+    words: Vec<u32>,
+    /// Indices of the triangles drawn.
+    kept: Vec<usize>,
+    /// The point vertex positions are relative to.
+    origin: Vec3,
+}
+
+/// Checks a mesh and expands it to three independent vertices per triangle, eight words each:
+/// position relative to the mesh's centre and normal as float bits, the face index, and the
+/// face's sRGB colour packed as RGBA bytes. Triangles without area are left out.
+fn prepare(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Prepared, RenderError> {
+    let invalid = |what: String| Err(RenderError::InvalidMesh(what));
     if mesh.normals.len() != mesh.positions.len() {
-        return invalid("normals and positions differ in length");
+        return invalid("normals and positions differ in length".into());
     }
     if mesh.triangle_faces.len() != mesh.triangles.len() {
-        return invalid("triangle_faces and triangles differ in length");
+        return invalid("triangle_faces and triangles differ in length".into());
     }
     if mesh.triangles.is_empty() {
-        return invalid("mesh has no triangles");
+        return invalid("mesh has no triangles".into());
     }
+    let finite = |v: Vec3| v.x.is_finite() && v.y.is_finite() && v.z.is_finite();
+    if let Some(i) = mesh.positions.iter().position(|p| !finite(*p)) {
+        return invalid(format!("vertex {i} has a position that is not finite"));
+    }
+    let (mut lo, mut hi) = (mesh.positions[0], mesh.positions[0]);
+    for p in &mesh.positions {
+        lo = Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
+        hi = Vec3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+    }
+    let origin = (lo + hi) * 0.5;
+
     let mut words = Vec::with_capacity(mesh.triangles.len() * 3 * FACE_VERTEX_WORDS);
-    for (triangle, face) in mesh.triangles.iter().zip(&mesh.triangle_faces) {
+    let mut kept = Vec::with_capacity(mesh.triangles.len());
+    for (k, (triangle, face)) in mesh.triangles.iter().zip(&mesh.triangle_faces).enumerate() {
+        let corners = [
+            position(mesh, triangle[0])?,
+            position(mesh, triangle[1])?,
+            position(mesh, triangle[2])?,
+        ];
+        let sides = [
+            corners[1] - corners[0],
+            corners[2] - corners[0],
+            corners[2] - corners[1],
+        ];
+        let longest = sides.iter().map(|s| s.dot(*s)).fold(0.0, f64::max);
+        let cross = sides[0].cross(sides[1]);
+        // |cross| is the longest side times the height over it.
+        if cross.length() <= DEGENERATE * longest {
+            continue;
+        }
+        let flat = cross.normalized().unwrap_or(Vec3::Z);
         let [r, g, b] = colors
             .get(face.0 as usize)
             .copied()
             .unwrap_or(DEFAULT_FACE_COLOR);
         let color = u32::from_le_bytes([r, g, b, 255]);
-        for &index in triangle {
-            let p = position(mesh, index)?;
+        for (&index, &p) in triangle.iter().zip(&corners) {
             // `position` succeeded, so the normal at the same index exists.
-            let n = mesh
+            let given = mesh
                 .normals
                 .get(index as usize)
                 .copied()
                 .unwrap_or_default();
-            words.extend(p.map(f32::to_bits));
-            words.extend([n.x as f32, n.y as f32, n.z as f32].map(f32::to_bits));
+            let n = if finite(given) && given.length() > 1e-12 {
+                given
+            } else {
+                flat
+            };
+            words.extend(local(p, origin).map(f32::to_bits));
+            words.extend(local(n, Vec3::ZERO).map(f32::to_bits));
             words.push(face.0);
             words.push(color);
         }
+        kept.push(k);
     }
-    Ok(words)
+    if kept.is_empty() {
+        return invalid("mesh has no triangle with area".into());
+    }
+    Ok(Prepared {
+        words,
+        kept,
+        origin,
+    })
 }
 
 #[cfg(test)]
@@ -958,7 +1052,7 @@ mod tests {
 
     #[test]
     fn vertex_words_carry_the_face_colour_or_the_default() -> TestResult {
-        let words = face_vertex_words(&two_quads(), &[[10, 20, 30]])?;
+        let words = prepare(&two_quads(), &[[10, 20, 30]])?.words;
         assert_eq!(words.len(), 4 * 3 * FACE_VERTEX_WORDS);
         let color = |vertex: usize| words[vertex * FACE_VERTEX_WORDS + 7];
         assert_eq!(color(0), u32::from_le_bytes([10, 20, 30, 255]));
@@ -1105,6 +1199,160 @@ mod tests {
         let two = pixel(&frame, (SIZE / 2 + 6, at(0.0, -0.5).1))?;
         assert!(two[0] > one[0] && one[0] > 20, "one {one:?}, two {two:?}");
         assert!(frame.ids.iter().all(|id| *id == 0));
+        Ok(())
+    }
+
+    /// The two quads, plus three triangles without area in front of them.
+    fn with_degenerates() -> Mesh {
+        let mut mesh = two_quads();
+        let base = u32::try_from(mesh.positions.len()).unwrap_or(u32::MAX);
+        for p in [
+            Vec3::new(-1.0, 0.0, 1.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 1.0),
+        ] {
+            mesh.positions.push(p);
+            mesh.normals.push(Vec3::Z);
+        }
+        // Collinear, a repeated index, and three equal points.
+        mesh.triangles.extend([
+            [base, base + 1, base + 2],
+            [base, base, base + 1],
+            [base, base, base],
+        ]);
+        mesh.triangle_faces.extend([FaceIndex(7); 3]);
+        mesh
+    }
+
+    #[test]
+    fn positions_that_are_not_finite_are_rejected() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut mesh = two_quads();
+            mesh.positions[3].y = bad;
+            match prepare(&mesh, &[]) {
+                Err(RenderError::InvalidMesh(m)) => assert!(m.contains("vertex 3"), "{m}"),
+                other => panic!(
+                    "{bad}: expected InvalidMesh, got {:?}",
+                    other.map(|p| p.kept)
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn triangles_without_area_are_left_out() -> TestResult {
+        let prepared = prepare(&with_degenerates(), &[])?;
+        assert_eq!(prepared.kept, [0, 1, 2, 3]);
+        assert_eq!(prepared.words.len(), 4 * 3 * FACE_VERTEX_WORDS);
+        Ok(())
+    }
+
+    #[test]
+    fn a_thin_triangle_is_kept_and_a_flat_one_is_not() -> TestResult {
+        let sliver = |height: f64| {
+            let mut mesh = Mesh::default();
+            for p in [
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(100.0, 0.0, 0.0),
+                Vec3::new(50.0, height, 0.0),
+            ] {
+                mesh.positions.push(p);
+                mesh.normals.push(Vec3::Z);
+            }
+            mesh.triangles.push([0, 1, 2]);
+            mesh.triangle_faces.push(FaceIndex(0));
+            mesh
+        };
+        // A height of a millionth of the length is a sliver worth drawing.
+        assert_eq!(prepare(&sliver(1e-4), &[])?.kept, [0]);
+        // A hundred-billionth is not.
+        assert!(matches!(
+            prepare(&sliver(1e-9), &[]),
+            Err(RenderError::InvalidMesh(m)) if m.contains("no triangle with area")
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn zero_and_broken_normals_are_replaced_by_the_triangle_normal() -> TestResult {
+        let mut mesh = two_quads();
+        mesh.normals[0] = Vec3::ZERO;
+        mesh.normals[1] = Vec3::new(f64::NAN, 0.0, 0.0);
+        let words = prepare(&mesh, &[])?.words;
+        let normal = |vertex: usize| {
+            let at = vertex * FACE_VERTEX_WORDS + 3;
+            [0, 1, 2].map(|i| f32::from_bits(words[at + i]))
+        };
+        assert_eq!(normal(0), [0.0, 0.0, 1.0]);
+        assert_eq!(normal(1), [0.0, 0.0, 1.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn positions_are_stored_relative_to_the_centre_of_the_mesh() -> TestResult {
+        let mut mesh = two_quads();
+        let far = Vec3::new(1.0e6, -2.0e6, 3.0e5);
+        for p in &mut mesh.positions {
+            *p = *p + far;
+        }
+        let prepared = prepare(&mesh, &[])?;
+        assert_eq!(prepared.origin, far);
+        let first = [0, 1, 2].map(|i| f32::from_bits(prepared.words[i]));
+        assert_eq!(first, [-2.0, -1.0, 0.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn skipped_triangles_are_counted_and_draw_no_edges_or_pixels() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let clean = renderer.upload(&two_quads())?;
+        let scene = renderer.upload(&with_degenerates())?;
+        assert_eq!(scene.triangle_count(), 4);
+        assert_eq!(scene.skipped_triangles(), 3);
+        assert_eq!(clean.skipped_triangles(), 0);
+        assert_eq!(scene.edge_count(), clean.edge_count());
+        let frame = renderer.render(&scene, &camera(), SIZE, SIZE)?;
+        assert!(frame.ids.iter().all(|id| *id != 8), "face 7 was picked");
+        Ok(())
+    }
+
+    #[test]
+    fn reversed_depth_separates_one_millimetre_at_ten_metres_with_a_tiny_near_plane() -> TestResult
+    {
+        let renderer = Renderer::headless()?;
+        let mut mesh = Mesh::default();
+        // Face 0 is behind, drawn last; face 1 is 1 mm nearer the eye, drawn first.
+        quad(&mut mesh, -1.0, -1.0, 1.0, 1);
+        quad(&mut mesh, -1.0, -1.0, 0.0, 0);
+        let scene = renderer.upload(&mesh)?;
+        let camera = Camera {
+            eye: Vec3::new(0.0, 0.0, 10_000.0),
+            fov_y: Camera::DEFAULT_FOV_Y / 2000.0,
+            near: 0.01,
+            far: 1.0e6,
+            ..camera()
+        };
+        let frame = renderer.render(&scene, &camera, SIZE, SIZE)?;
+        assert_eq!(frame.pick(SIZE / 2, SIZE / 2), Some(FaceIndex(1)));
+        Ok(())
+    }
+
+    #[test]
+    fn a_part_far_from_the_origin_renders_as_it_does_at_the_origin() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let near = renderer.render(&renderer.upload(&two_quads())?, &camera(), SIZE, SIZE)?;
+        let far = Vec3::new(1.0e6, 1.0e6, 0.0);
+        let mut mesh = two_quads();
+        for p in &mut mesh.positions {
+            *p = *p + far;
+        }
+        let moved = Camera {
+            eye: camera().eye + far,
+            target: far,
+            ..camera()
+        };
+        let frame = renderer.render(&renderer.upload(&mesh)?, &moved, SIZE, SIZE)?;
+        assert_eq!(frame.ids, near.ids);
         Ok(())
     }
 }

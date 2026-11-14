@@ -94,14 +94,16 @@ impl Camera {
                 1.0,
             ],
         ];
-        // Right-handed view space, depth 0 at the near plane and 1 at the far plane.
+        // Right-handed view space, with reversed depth: 1 at the near plane and 0 at the far
+        // plane. Floats are densest near zero, so reversing spends their precision on distant
+        // surfaces, where the perspective divide leaves the least of it.
         let focal = 1.0 / half.tan();
-        let depth = self.far / (self.near - self.far);
+        let depth = self.near / (self.far - self.near);
         let projection = [
             [focal / aspect, 0.0, 0.0, 0.0],
             [0.0, focal, 0.0, 0.0],
             [0.0, 0.0, depth, -1.0],
-            [0.0, 0.0, self.near * depth, 0.0],
+            [0.0, 0.0, self.far * depth, 0.0],
         ];
         Ok((narrow(view), narrow(multiply(projection, view))))
     }
@@ -194,6 +196,27 @@ mod tests {
         );
         assert!(Camera { fov_y: 0.0, ..good }.matrices(1.0).is_err());
         assert!(good.matrices(0.0).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn depth_is_reversed_one_at_the_near_plane_and_zero_at_the_far_plane() -> Result<(), RenderError>
+    {
+        let cam = Camera {
+            eye: Vec3::new(0.0, 0.0, 10.0),
+            target: Vec3::ZERO,
+            up: Vec3::Y,
+            fov_y: Camera::DEFAULT_FOV_Y,
+            near: 2.0,
+            far: 50.0,
+        };
+        let (_, view_proj) = cam.matrices(1.0)?;
+        let near = project(view_proj, [0.0, 0.0, 8.0])[2];
+        let far = project(view_proj, [0.0, 0.0, -40.0])[2];
+        let middle = project(view_proj, [0.0, 0.0, 0.0])[2];
+        assert!((near - 1.0).abs() < 1e-5, "{near}");
+        assert!(far.abs() < 1e-5, "{far}");
+        assert!(middle > far && middle < near, "{middle}");
         Ok(())
     }
 }

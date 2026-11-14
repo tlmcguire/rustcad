@@ -126,8 +126,14 @@ The renderer is RustCAD's own, about 1,500 lines of Rust and WGSL in [`crates/ca
 It is built on [wgpu](https://wgpu.rs), which runs on Metal, Vulkan, or DirectX, with shaders
 in WGSL; there is no game engine underneath. A mesh from the kernel is expanded to three
 vertices per triangle. Each vertex carries its position, normal, face number, and the face's
-colour. Each frame is one pass with a 32-bit depth buffer that writes two images at once:
-the picture, and a face ID buffer holding the face number under every pixel. Picking reads
+colour. Positions are stored relative to the centre of the mesh, and the camera is moved to
+match in double precision, so a small part far from the world origin keeps full precision.
+On upload, positions that are not finite are refused, triangles with no area are left out,
+and a zero-length normal is replaced by its triangle's own. Each frame is one pass with a
+32-bit depth buffer that writes two images at once: the picture, and a face ID buffer
+holding the face number under every pixel. Depth is stored reversed, 1 at the near plane and
+0 at the far plane. Floating point numbers are densest near zero, so that spends their
+precision on distant surfaces, which the perspective divide leaves with the least of it. Picking reads
 that second image, so clicking is exact to the pixel. Face boundaries, found on the CPU when
 the mesh is uploaded, are drawn last as lines, pulled 1.5 pixels' worth of depth toward the
 eye so they stay in front of their own faces.
@@ -143,7 +149,7 @@ window to switch, or call `Renderer::set_view_mode`.
 | 4 | **Triangles** | Every triangle in its own colour: how finely a surface is tessellated. |
 | 5 | **Faces** | The face ID buffer made visible: what a click would pick. |
 | 6 | **World normal** | The surface normal as colour. |
-| 7 | **Scene depth** | Distance as a colour ramp, striped every 1/64 of the stored depth value. The stripes crowd toward the near plane: that is where depth precision goes. Where there are no stripes, nearby surfaces share a depth value and can fight. |
+| 7 | **Scene depth** | Distance as a colour ramp, striped every 1/64 of the stored depth value. The stripes crowd toward the near plane, where the stored value changes fastest; because depth is reversed, a float still keeps fine steps beyond the last stripe. |
 | 8 | **Overdraw** | Every triangle added up, with the depth test off: brightness counts the layers under each pixel. |
 
 ### Run them
@@ -204,11 +210,11 @@ triangles are smaller than a pixel even at 25× and the ripple is smooth.
 
 | Triangles | Upload | Frame | Wrong pixels |
 |---:|---:|---:|---:|
-| 1 M | 0.1 s | 3.5 ms | 0 |
-| 2 M | 0.6 s | 4.7 ms | 0 |
-| 4 M | 0.8 s | 8.1 ms | 0 |
-| 8 M | 2.1 s | 15.0 ms | 0 |
-| 16 M | 4.5 s | 27.5 ms | 0 |
+| 1 M | 0.2 s | 3.3 ms | 0 |
+| 2 M | 0.3 s | 4.6 ms | 0 |
+| 4 M | 0.8 s | 8.2 ms | 0 |
+| 8 M | 1.9 s | 15.0 ms | 0 |
+| 16 M | 5.6 s | 27.4 ms | 0 |
 
 All five pass. Drawing scales close to linearly with the triangle count, but upload is slow.
 It copies every triangle's three vertices out separately and sorts every triangle side to
@@ -233,17 +239,15 @@ away whose windows stand 20 mm proud of the wall. The windows come before the wa
 mesh, so draw order cannot paper over a depth failure. Then three 0.2 mm cubes 1 km from the
 origin.
 
-**All three cases fail.**
-- **Near plane 0.01 mm:** the Scene depth view is one flat colour. Everything past the bench
-  lands in the last of the 64 stripes, because the depth buffer has nothing left to tell
-  1 m from 300 m. The road and its lane marks fight the floor, and which face wins in the
-  distance is arbitrary.
-- **Near plane 20 mm:** the stripes now reach further out, but at 300 m the depth buffer
-  still cannot resolve 20 mm. The windows vanish into the wall, as the Lit view shows.
-- **1 km from the origin:** vertex positions go to the GPU in single precision, which
-  resolves only about 0.06 mm at 1 km. The cubes deform, and 7% of the picture is wrong.
+**All three cases pass, with no wrong pixels.** With the near plane at 0.01 mm, every far
+surface lands in the last stripe of the Scene depth view, yet the windows, the road, and
+its lane marks are all correct: the reversed depth buffer still tells 20 mm apart at
+300 m. The cubes 1 km out are drawn as precisely as at the origin, because their positions
+are stored relative to the part itself.
 
-A reversed depth buffer and drawing relative to the camera would fix all three.
+Before these fixes, all three failed. The near plane at 0.01 mm left 1.6% of the picture
+wrong and made the road fight the floor. At 20 mm the windows vanished into the wall.
+1 km out, single-precision positions deformed the cubes and left 7% of the picture wrong.
 
 ### Coincident faces: `zfight`
 
@@ -257,9 +261,12 @@ orange block overlapping it with tops and fronts flush, and a white label 0.001 
 - **Flush lid, same triangles:** passes. The body drawn second wins everywhere.
 - **Overlapping bodies, flush faces:** the two faces speckle. 40% of the shared area shows
   the "losing" body, in orange-and-blue blotches in the Lit view itself. Bodies that touch
-  in an assembly will do this.
+  in an assembly will do this. More depth precision cannot help, because the two faces are
+  exactly in the same place: the fix is a rule for which body wins a tie.
 - **Label 0.001 mm up:** passes.
-- **Label 0.00001 mm up:** 15% of the block's pixels pick the wrong face, and the label breaks into islands.
+- **Label 0.00001 mm up:** 15% of the block's pixels pick the wrong face, and the label
+  breaks into islands. Ten nanometres at 19 cm is about one part in 19 million of the
+  distance, below what a 32-bit float can resolve.
 
 ### Slivers and bad input: `slivers`
 
@@ -269,16 +276,16 @@ A starburst of 200,000 fan triangles, each 1.6 micrometres wide at the rim. A sh
 600,000 needles with an aspect ratio of 500,000 to 1. A plate under 30,000 zero-area
 triangles. Then a set of meshes that should be refused.
 
-The slivers and needles pass, with no cracks and no wrong pixels. The Triangles and Wireframe
-views turn to noise and solid colour: there are thousands of triangles per pixel. **These
-fail:**
-- **Zero-area triangles show up:** their sides are drawn as stray edge lines all over the
-  Lit view, and 364 pixels pick a face that has no area. The fix is to drop degenerate
-  triangles when a mesh is uploaded.
-- **NaN and infinite vertex positions** are accepted without an error.
-- **Zero-length normals** are accepted and drawn almost black.
+**All of it passes.** The slivers and needles have no cracks and no wrong pixels; their
+Triangles and Wireframe views turn to noise and solid colour, with thousands of triangles per
+pixel. The 30,000 zero-area triangles are left out at upload: the plate draws clean, nothing
+picks them, and they draw no edges. NaN and infinite positions are refused with an error
+that names the vertex, and zero-length normals are replaced by the triangle's own, so those
+faces are lit. Empty meshes and missing vertices are refused as before.
 
-Empty meshes and missing vertices are refused correctly.
+Before these fixes, the zero-area triangles drew stray edge lines over the whole plate and
+364 pixels picked them, bad positions were accepted silently, and zero-length normals drew
+faces black.
 
 ### Thin walls: `thin`
 
@@ -287,10 +294,11 @@ Empty meshes and missing vertices are refused correctly.
 An open-topped 40 mm box, blue outside, red inside, with a yellow rim. Red must never show
 through blue.
 
-**Two of the four cases fail.** Walls of 1 mm and 0.01 mm are correct when the clip planes
-fit the part. A 0.0001 mm wall leaks red through the outside, on 3.3% of the box's pixels. A 0.01 mm
-wall leaks just as badly, 3.1%, when the clip planes are left loose at 0.1 mm to 100 m.
-Fitting the clip planes to the model matters.
+**One of the four cases fails.** Walls of 1 mm and 0.01 mm are correct, and so is the
+0.01 mm wall with clip planes left loose at 0.1 mm to 100 m, which leaked red on 3.1% of the
+box's pixels before depth was reversed. A 0.0001 mm wall still leaks, on 3.6%: a tenth of a
+micrometre at 13 cm is about one part in a million of the distance, at the edge of what
+32-bit depth can tell apart.
 
 ### Picking at the pixel limit: `picking`
 
@@ -310,8 +318,8 @@ GPU's choice there counts as within precision.
 A plate cut by **256 pockets**, one boolean at a time, and a **union of 256 overlapping
 boxes**. Both are built in OpenCascade, tessellated, and rendered. Both pass. Volumes match
 the exact values within 2e-14 relative, every output face is accounted for in the history
-maps, and no pixel picks the wrong face. Each boolean gets slower as the shape grows: 15 ms
-for the first cut and 91 ms for the last, 11 s for the whole chain. The Faces view shows that
+maps, and no pixel picks the wrong face. Each boolean gets slower as the shape grows: 16 ms
+for the first cut and 93 ms for the last, 11 s for the whole chain. The Faces view shows that
 the union keeps every split top face (1,946 faces), because the kernel does not yet merge
 coplanar faces.
 

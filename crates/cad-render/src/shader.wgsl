@@ -5,6 +5,8 @@ struct Globals {
     view: mat4x4<f32>,
     face_color: vec4<f32>,
     edge_color: vec4<f32>,
+    // Eye position, and the fraction of its distance an edge vertex moves toward it.
+    eye_pull: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -50,10 +52,11 @@ fn face_fs(in: FaceVarying) -> Output {
 
 @vertex
 fn edge_vs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
-    var clip = globals.view_proj * vec4<f32>(position, 1.0);
-    // Pull edges slightly toward the camera so they win against their own faces.
-    clip.z -= 1.0e-4 * clip.w;
-    return clip;
+    // Move edges toward the eye so they win against their own faces. Moving along the ray
+    // keeps the line where it was on screen and changes only its depth.
+    let eye = globals.eye_pull.xyz;
+    let pulled = position + (eye - position) * globals.eye_pull.w;
+    return globals.view_proj * vec4<f32>(pulled, 1.0);
 }
 
 @fragment

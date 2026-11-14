@@ -113,8 +113,14 @@ impl Renderer {
                 };
                 match instance.request_adapter(&options).await {
                     Ok(adapter) => {
+                        // The default limits cap one buffer at 256 MiB, about 3.2 million
+                        // triangles. Ask for what the adapter can do instead.
+                        let descriptor = wgpu::DeviceDescriptor {
+                            required_limits: adapter.limits(),
+                            ..Default::default()
+                        };
                         let (device, queue) = adapter
-                            .request_device(&wgpu::DeviceDescriptor::default())
+                            .request_device(&descriptor)
                             .await
                             .map_err(|e| RenderError::Device(e.to_string()))?;
                         let info = adapter.get_info();
@@ -274,8 +280,26 @@ impl Renderer {
     /// # Errors
     ///
     /// Returns [`RenderError::InvalidMesh`] when the mesh is empty, its arrays disagree in
-    /// length, or a triangle refers to a vertex that does not exist.
+    /// length, a triangle refers to a vertex that does not exist, or the mesh needs a larger
+    /// vertex buffer than the device allows.
     pub fn upload(&self, mesh: &Mesh) -> Result<Scene, RenderError> {
+        let max = self.device.limits().max_buffer_size;
+        let fits = |bytes: u64, what: &str| {
+            if bytes <= max {
+                Ok(())
+            } else {
+                Err(RenderError::InvalidMesh(format!(
+                    "{what} need {} MiB of vertex data; the device allows {} MiB per buffer",
+                    bytes >> 20,
+                    max >> 20
+                )))
+            }
+        };
+        let triangles = u64::try_from(mesh.triangles.len()).unwrap_or(u64::MAX);
+        fits(
+            triangles.saturating_mul(3 * FACE_VERTEX_BYTES),
+            &format!("{triangles} triangles"),
+        )?;
         let faces = face_vertex_words(mesh)?;
         let face_vertices = self
             .device
@@ -292,6 +316,12 @@ impl Renderer {
                 lines.extend(p);
             }
         }
+        fits(
+            u64::try_from(lines.len())
+                .unwrap_or(u64::MAX)
+                .saturating_mul(4),
+            "the edges",
+        )?;
         let edge_vertices = (!lines.is_empty()).then(|| {
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -348,12 +378,22 @@ impl Renderer {
         let aspect = f64::from(targets.width) / f64::from(targets.height);
         let (view, view_proj) = camera.matrices(aspect)?;
         let mut globals = [0.0_f32; GLOBALS_WORDS];
+        // Edges move toward the eye by the depth of EDGE_PULL_PX pixels at their distance.
+        let pull = EDGE_PULL_PX * 2.0 * (camera.fov_y / 2.0).tan() / f64::from(targets.height);
+        #[allow(clippy::cast_possible_truncation)] // The GPU works in single precision.
+        let eye_pull = [
+            camera.eye.x as f32,
+            camera.eye.y as f32,
+            camera.eye.z as f32,
+            pull as f32,
+        ];
         let values = view_proj
             .iter()
             .chain(&view)
             .flatten()
             .chain(&FACE_COLOR)
-            .chain(&EDGE_COLOR);
+            .chain(&EDGE_COLOR)
+            .chain(&eye_pull);
         for (slot, value) in globals.iter_mut().zip(values) {
             *slot = *value;
         }
@@ -589,9 +629,18 @@ impl Renderer {
     }
 }
 
-/// Two matrices and two colours.
-const GLOBALS_WORDS: usize = 40;
-const GLOBALS_BYTES: u64 = 160;
+/// Two matrices, two colours, and the eye with the edge pull.
+const GLOBALS_WORDS: usize = 44;
+const GLOBALS_BYTES: u64 = 176;
+
+/// How far edges are drawn in front of their faces, in pixels of depth at the edge's distance.
+///
+/// A line pixel's centre can lie up to half a pixel off the edge, where a steep or curved face
+/// is already nearer than the line. A fixed offset in depth units is far too small at some
+/// distances and too large at others, and edges broke into dashes. Pulling toward the eye by a
+/// screen-relative amount keeps edges whole on faces up to about 70 degrees from the view,
+/// and lets a hidden edge show through only when it is within this much of the front face.
+const EDGE_PULL_PX: f64 = 1.5;
 
 fn position(mesh: &Mesh, index: u32) -> Result<[f32; 3], RenderError> {
     let p = usize::try_from(index)

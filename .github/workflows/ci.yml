@@ -11,9 +11,11 @@ on:
 permissions:
   contents: read
 
+# A new push queues behind a running job instead of cancelling it, so an OCCT build in
+# progress always finishes and lands in the cache.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   gates:
@@ -39,8 +41,10 @@ jobs:
           # The coverage, mutation, and API gates compare against the merge base.
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The version pinned in rust-toolchain.toml (DECISIONS.md D13); keep the two in step.
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.93.1"
           components: rustfmt, clippy, llvm-tools-preview
 
       - name: MSVC environment

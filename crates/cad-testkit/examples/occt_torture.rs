@@ -95,6 +95,7 @@ fn show(
     mesh: &cad_kernel::Mesh,
     camera: &Camera,
 ) -> DynResult<verify::CaseOutcome> {
+    println!("  case: {title}");
     run_case(
         renderer,
         &Shot {
@@ -105,10 +106,13 @@ fn show(
             camera,
             forbidden: &[],
             main: ViewMode::Lit,
+            light: None,
+            edges: true,
+            trace: None,
             insets: [
                 Inset::View(ViewMode::Faces),
                 Inset::View(ViewMode::Wireframe),
-                Inset::Errors,
+                Inset::View(ViewMode::Normals),
             ],
         },
     )

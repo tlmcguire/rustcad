@@ -22,7 +22,7 @@ under the hand, and deep enough for real engineering.
 | | Today |
 |---|---|
 | **Geometry** | OpenCascade 7.9.3 behind a `Kernel` trait: boxes, union, subtract, intersect, tessellation, mass properties. Every boolean reports what became of each face. |
-| **Rendering** | A wgpu renderer with shaded faces and edges, in a window or straight to PNG. About 2 ms per frame for a million triangles on an Apple M2, tested up to 16 million, with engine-style view modes ([torture tests](#torture-tests)). |
+| **Rendering** | A wgpu renderer with shaded faces and edges, in a window or straight to PNG. About 2 ms per frame for a million triangles on an Apple M2, tested up to 16 million, with engine-style view modes, baked ray-traced lighting, and a path tracer ([rendering and torture tests](#rendering-and-torture-tests)). |
 | **Picking** | Click a pixel, get the face beneath it. |
 | **Naming** | Faces are named by the feature that made them, so references outlive edits to earlier steps. A spike, with one known flaw written up. |
 | **Isolation** | The kernel can run in a separate worker process. If it crashes or hangs, the call fails cleanly and a fresh worker takes over. About 10 to 40 microseconds added per call. |
@@ -104,58 +104,76 @@ cargo run -p cad-render --example snapshot -- box.png
 cargo run --release -p cad-render --example bench
 ```
 
-## Torture tests
+## Rendering and torture tests
 
 > **⚠️ These demos are meant to be hard on your machine.** The largest cases build meshes of
-> 16 million triangles, need several GB of memory, and keep the GPU busy for seconds at a
-> time. Your computer may slow down while they run. Close other heavy applications first. On
-> a machine with less than 8 GB of memory, run one demo at a time. Ctrl+C stops them.
+> 16 million triangles, bake light into millions of vertices by ray tracing, and need several
+> GB of memory. Your computer may slow down while they run. Close other heavy applications
+> first. On a machine with less than 8 GB of memory, run one demo at a time. Ctrl+C stops them.
 
-The torture demos push the renderer well past where a CAD viewport normally lives, and they
-show it working the way game engine editors do: a lit view with live stats, next to technical
-views of what the renderer actually computed. They also check what it draws instead of just
+<p align="center">
+  <img src="docs/images/render-canyon-lit.jpg" alt="A fractal canyon of 1 million triangles, lit by baked ray-traced sun shadows and ambient occlusion" width="900">
+  <br><em>A canyon of 1 million triangles. Drawn in real time by the GPU, in light baked offline by CPU ray tracing: sun shadows and ambient occlusion.</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/render-canyon-triangles.jpg" alt="The canyon in the Triangles view: every triangle in its own colour, with a dark wire overlay" width="440">
+  <img src="docs/images/render-city-path-traced.jpg" alt="A city of 14,400 buildings, path traced" width="440">
+  <br><em>Left: the Triangles view with the wire overlay, every triangle in its own colour, in real time. Right: a city of 14,400 buildings, path traced on the CPU at 128 samples per pixel.</em>
+</p>
+
+The renderer is RustCAD's own, in [`crates/cad-render`](crates/cad-render), built on
+[wgpu](https://wgpu.rs) (Metal, Vulkan, or DirectX) with shaders in WGSL; there is no game
+engine underneath. The torture demos push it well past where a CAD viewport normally lives,
+show how it works through engine-style view modes, and check what it draws instead of just
 looking at it. Every case is rendered offscreen, then compared pixel by pixel with a slow CPU
-rasterizer that works in double precision. If the GPU picks the wrong face for a pixel, the
-demo says so, counts it, and exits with an error. It never quietly saves a wrong picture.
+rasterizer in double precision. If the GPU picks the wrong face for a pixel, the demo says
+so, counts it, and exits with an error. It never quietly saves a wrong picture.
+
+### What runs where
+
+| | Where | What |
+|---|---|---|
+| **Real time** | GPU, every frame | Rasterizing every triangle, the face ID buffer used for picking, depth from each triangle's plane, edges, the wire overlay, and all nine view modes. |
+| **Baked** | CPU, once per mesh | Light per vertex: sun shadows and sky ambient occlusion by ray tracing (`cad_render::trace::bake`). The GPU then draws in that light. Moving the sun in a demo window bakes again. |
+| **Path traced** | CPU, offline | Reference images: sun with shadows, a sky, and two diffuse bounces (`cad_render::trace::path_trace`). Seconds to minutes per image, never interactive. |
+
+There are no real-time shadow maps, real-time ambient occlusion, GPU ray tracing,
+physically based materials, or anti-aliasing yet. They are next on the renderer track in
+[ROADMAP.md](ROADMAP.md). The stills on this page are rendered at twice their size and
+filtered down.
 
 ### How the renderer works
 
-![One scene in all eight view modes](docs/images/torture-modes.png)
+![One canyon in all nine view modes, and path traced](docs/images/torture-modes.jpg)
 
-The renderer is RustCAD's own, about 1,500 lines of Rust and WGSL in [`crates/cad-render`](crates/cad-render).
-It is built on [wgpu](https://wgpu.rs), which runs on Metal, Vulkan, or DirectX, with shaders
-in WGSL; there is no game engine underneath. A mesh from the kernel is expanded to three
-vertices per triangle. Each vertex carries its position, normal, face number, and the face's
-colour. Positions are stored relative to the centre of the mesh, and the camera is moved to
-match in double precision, so a small part far from the world origin keeps full precision.
-On upload, positions that are not finite are refused, triangles with no area are left out,
-and a zero-length normal is replaced by its triangle's own. Each frame is one pass with a
-32-bit depth buffer that writes two images at once: the picture, and a face ID buffer
-holding the face number under every pixel. Depth is stored reversed, 1 at the near plane and
-0 at the far plane. Floating point numbers are densest near zero, so that spends their
-precision on distant surfaces, which the perspective divide leaves with the least of it.
-Depth is not interpolated across each triangle, either. The fragment shader rebuilds the
-pixel's view ray and meets it with the triangle's plane, kept in a storage buffer. So two
-faces in exactly the same place get the same depth to the bit, and the face drawn later wins
-every pixel instead of the two speckling. That costs early depth rejection: frames take
-about 10% longer for a dense knot, and a third longer for a cloud of overlapping cubes. Picking reads
-that second image, so clicking is exact to the pixel. Face boundaries, found on the CPU when
-the mesh is uploaded, are drawn last as lines, pulled 1.5 pixels' worth of depth toward the
-eye so they stay in front of their own faces.
+A mesh from the kernel is expanded to three vertices per triangle. Each vertex carries its
+position (relative to the mesh's centre, so parts far from the origin keep full precision),
+its normal, its face number, its face's colour, and its baked light. On upload, positions
+that are not finite are refused, triangles with no area are left out, and zero-length
+normals are replaced by the triangle's own. Each frame is one pass that writes the picture
+and a face ID buffer holding the face number under every pixel; picking reads that buffer,
+so clicking is exact to the pixel. Depth is stored reversed (1 at the near plane, 0 at the
+far plane) and computed per pixel from the triangle's plane rather than interpolated, so
+flush faces of different bodies tie exactly and the one drawn later wins. Face boundary
+edges are drawn last, pulled 1.5 pixels' worth toward the eye so they stay in front of
+their own faces.
 
-Like an engine's view modes, the renderer can show any of eight views. Press 1 to 8 in a demo
-window to switch, or call `Renderer::set_view_mode`.
-
-| | View | What it shows |
+| Key | View | What it shows |
 |---|---|---|
-| 1 | **Lit** | The model: face colours, lit from the eye, with edges. |
-| 2 | **Unlit** | Base colour only: no lighting, no edges. |
-| 3 | **Wireframe** | Every triangle's outline, from the corner each vertex carries. |
+| 1 | **Lit** | Face colours in baked light when the scene has it, otherwise lit from the eye, with edges. |
+| 2 | **Unlit** | Base colour only. |
+| 3 | **Wireframe** | Every triangle outlined. |
 | 4 | **Triangles** | Every triangle in its own colour: how finely a surface is tessellated. |
-| 5 | **Faces** | The face ID buffer made visible: what a click would pick. |
+| 5 | **Faces** | The face ID buffer made visible: what a click picks. |
 | 6 | **World normal** | The surface normal as colour. |
-| 7 | **Scene depth** | Distance as a colour ramp, striped every 1/64 of the stored depth value. The stripes crowd toward the near plane, where the stored value changes fastest; because depth is reversed, a float still keeps fine steps beyond the last stripe. |
-| 8 | **Overdraw** | Every triangle added up, with the depth test off: brightness counts the layers under each pixel. |
+| 7 | **Lighting only** | The light alone, on white: the bake, or the light from the eye. |
+| 8 | **Scene depth** | Distance as a colour ramp, striped every 1/64 of the stored depth value. |
+| 9 | **Overdraw** | Every triangle added up with no depth test: brightness counts the layers under each pixel. |
+
+The wire overlay (W) outlines every triangle over any of these, as engines do over a shaded
+view. In code: `Renderer::set_view_mode`, `set_wire_overlay`, `set_edges`, `upload_baked`,
+the `trace` module, and `Navigation` for orbit, pan, and zoom to the cursor.
 
 ### Run them
 
@@ -167,15 +185,8 @@ cargo run --release -p cad-render --example torture
 ```
 
 ```sh
-# One or more demos by name
-cargo run --release -p cad-render --example torture -- dense bodies
-```
-
-```sh
-# Open a demo in a window. The model turns slowly; space pauses it. Keys 1 to 8 switch
-# view mode, drag orbits, scroll zooms, a click prints the face under the cursor, the
-# left and right arrows switch case, Esc quits.
-cargo run --release -p cad-render --example torture -- dense --window
+# One demo in a window
+cargo run --release -p cad-render --example torture -- terrain --window
 ```
 
 ```sh
@@ -183,147 +194,194 @@ cargo run --release -p cad-render --example torture -- dense --window
 cargo run --release -p cad-testkit --example occt_torture
 ```
 
-The demo names are `modes`, `dense`, `bodies`, `depth`, `zfight`, `slivers`, `thin` and
-`picking`. Add `--out DIR` to put the images somewhere else. The OpenCascade demo lives in
-`cad-testkit`, because the renderer crate may not depend on the kernel backend. It draws
-through the same `Kernel` trait as everything else.
+In a window:
 
-### How to read the images
+| Input | Does |
+|---|---|
+| Left drag | Orbit |
+| Right drag, or Shift and left drag | Pan |
+| Scroll, or pinch | Zoom toward the cursor |
+| 1 to 9 | View mode |
+| W / E | Wire overlay / face edges |
+| `[` `]` / `-` `=` | Turn / raise the sun, and bake the light again |
+| Space / R | Turntable / reset the view |
+| Left and right arrows | Previous and next case |
+| H / Esc | Hide the panel / quit |
 
-Each row is one case. The large view is what the renderer drew, with stats in the corner:
+A panel in the bottom left corner shows the case, the view mode, the toggles, the sun, the
+triangle count, and the frame time. A click prints the face under the cursor.
+
+The demos are `modes`, `terrain`, `dense`, `bodies`, `depth`, `zfight`, `slivers`, `thin`
+and `picking`; add `--out DIR` to put the images elsewhere. The OpenCascade demo lives in
+`cad-testkit`, because the renderer crate may not depend on the kernel backend.
+
+### How to read the screenshots
+
+Each row is one case. The large view is the main picture, with stats in the corner:
 triangles, faces, frame time, upload time, and how many pixels picked the wrong face, then
-**PASS** or **FAIL**. The column on the right holds three technical views chosen for that
-case, and the last is always the error map against the double-precision reference. In the
-error map, red marks a wrong face in the middle of a face, orange a wrong face at a boundary,
-and magenta two coincident faces speckling. The stripe down the left of a row is green when
-every check in that case passed and red when one failed.
+**PASS** or **FAIL**. On the right are three technical views chosen for the case, and always
+last, the error map against the double-precision reference: red marks a wrong face inside a
+face, orange a wrong face at a boundary, magenta flush faces speckling. The stripe on the
+left is green when every check in the case passed.
 
-A pixel centre within a hundredth of a pixel of an edge can land on either side on a GPU,
-which snaps vertices to a sub-pixel grid. Those pixels are counted but not treated as errors.
+The demos write PNGs; the screenshots here are JPEG copies of the larger ones, to keep
+the repository small. Numbers are from an Apple M2 with 8 GB of memory (Metal), main view 960 × 600. The final
+run shared the machine with other applications, so frame times vary from run to run by
+20% or more; the screenshots show the times measured in that run.
 
-Numbers are from an Apple M2 with 8 GB of memory (Metal), at 960 × 600.
+### Every view mode: `modes`
+
+```sh
+cargo run --release -p cad-render --example torture -- modes
+```
+
+The screenshot under [How the renderer works](#how-the-renderer-works): a canyon of 12,800
+triangles, coarse enough that the Wireframe and Triangles views show single triangles, in
+all nine views and path traced. This demo also writes the three stills at the top of this
+section.
+
+### Nanite-style terrain: `terrain`
+
+```sh
+cargo run --release -p cad-render --example torture -- terrain
+```
+
+![A canyon of 1 and 4 million triangles in baked light, with triangle, lighting, and path-traced views](docs/images/torture-terrain.jpg)
+
+A ridged fractal canyon of **1 and 4 million triangles**, faces following its terrain
+classes (beach, grass, scree, rock, snow), lit by baked light: 13 ray-traced rays per vertex,
+one toward the sun and twelve for ambient occlusion. The Triangles view with the wire
+overlay, zoomed 8×, shows how dense the mesh is, as an engine shows a virtualized mesh.
+Beside it, the light alone, then a path-traced reference. Both pass. The 4 million triangle
+case draws in 12 ms; building its ray-tracing hierarchy takes 1.3 s and baking its 2 million
+vertices 5.4 s.
 
 ### Triangle count: `dense`
 
-![A ridged knot at 1 and 16 million triangles, with 25x zoomed triangle and wireframe views](docs/images/torture-dense.png)
+```sh
+cargo run --release -p cad-render --example torture -- dense
+```
+
+![A ridged knot at 1 to 16 million triangles, with zoomed triangle and wireframe views](docs/images/torture-dense.jpg)
 
 A knotted tube with spiral ridges and a ripple finer than the coarse meshes can follow,
 refined from 1 million to **16 million triangles**. The ramp stops at the first size that
-fails. The zoomed views on the right show the difference the full view cannot. At 1 million
-triangles, each triangle is plain to see and the ripple is lost. At 16 million, the
-triangles are smaller than a pixel even at 25× and the ripple is smooth.
+fails. Zoomed 25×, the Triangles and Wireframe views show what the full view cannot: at 1
+million triangles each triangle is plain to see, at 16 million they are smaller than a pixel.
 
 | Triangles | Upload | Frame | Wrong pixels |
 |---:|---:|---:|---:|
-| 1 M | 0.1 s | 4.3 ms | 0 |
-| 2 M | 0.3 s | 5.6 ms | 0 |
-| 4 M | 0.8 s | 9.5 ms | 0 |
-| 8 M | 2.1 s | 16.6 ms | 0 |
-| 16 M | 6.2 s | 30.1 ms | 0 |
+| 1 M | 0.2 s | 5.8 ms | 0 |
+| 2 M | 0.6 s | 7.5 ms | 0 |
+| 4 M | 1.3 s | 13.7 ms | 0 |
+| 8 M | 4.3 s | 20.9 ms | 0 |
+| 16 M | 26 s | 36.6 ms | 0 |
 
-All five pass. Drawing scales close to linearly with the triangle count, but upload is slow.
-It copies every triangle's three vertices out separately and sorts every triangle side to
-find the edges. The ceiling is the GPU's largest buffer: 4 GiB on this machine, or about 45
-million triangles at 32 bytes per vertex. A mesh too large for the GPU is refused with an
-error.
+All five pass. The 16 million triangle upload ran out of free memory on this 8 GB machine
+and swapped; on a quiet machine it takes about 6 s, and the frame about 30 ms. Upload copies
+every triangle's three vertices out separately and sorts every triangle side to find the
+edges. The ceiling is the GPU's largest buffer: 4 GiB here, about 45 million triangles.
 
 ### Many bodies: `bodies`
 
-![A spiral galaxy of 512,000 separate bodies](docs/images/torture-bodies.png)
+```sh
+cargo run --release -p cad-render --example torture -- bodies
+```
 
-A spiral galaxy of 128,000 and then **512,000 separate bodies**, each its own pick target:
-6.1 million triangles and half a million distinct face IDs. Both pass. The Faces view shows
-every body in its own colour, and the large case draws in 43 ms.
+![A city of 14,400 and 129,600 separate buildings in baked light](docs/images/torture-bodies.jpg)
+
+A city of 14,400 and then **129,600 separate buildings**, each its own body and pick target,
+in baked sun shadows and ambient occlusion. The large city is 4.3 million triangles drawn in
+22 ms; baking its 5 million vertices takes 10 s. Both pass. The Faces view gives every
+building its own colour. Face edges are off here: at this density, building outlines are
+smaller than a pixel and drew the city black. Fading edges by their on-screen density is
+part of the edges work on the renderer track.
 
 ### Depth range: `depth`
 
-![A bolt on a workbench with a factory 300 m away, and tiny cubes 1 km from the origin](docs/images/torture-depth.png)
+```sh
+cargo run --release -p cad-render --example torture -- depth
+```
 
-An M3 bolt and a 1 mm cube on a workbench 60 mm from the eye, a road, and a factory 300 m
-away whose windows stand 20 mm proud of the wall. The windows come before the wall in the
-mesh, so draw order cannot paper over a depth failure. Then three 0.2 mm cubes 1 km from the
-origin.
+![A bolt on a workbench, a factory 300 m away and a city 3 km away, and tiny cubes 1 km from the origin](docs/images/torture-depth.png)
 
-**All three cases pass, with no wrong pixels.** With the near plane at 0.01 mm, every far
-surface lands in the last stripe of the Scene depth view, yet the windows, the road, and
-its lane marks are all correct: the reversed depth buffer still tells 20 mm apart at
-300 m. The cubes 1 km out are drawn as precisely as at the origin, because their positions
-are stored relative to the part itself.
-
-Before these fixes, all three failed. The near plane at 0.01 mm left 1.6% of the picture
-wrong and made the road fight the floor. At 20 mm the windows vanished into the wall.
-1 km out, single-precision positions deformed the cubes and left 7% of the picture wrong.
+An M3 bolt and a 1 mm cube on a workbench 60 mm from the eye, a road, a factory 300 m away
+whose windows stand 20 mm proud of its wall, and a city 3 km away on the horizon, with the
+near plane at 0.01 mm and then 20 mm. Then three 0.2 mm cubes 1 km from the origin. **All
+three pass.** The windows come before the wall in the mesh, so draw order cannot paper over
+a depth failure. Before reversed depth, depth from each triangle's plane, and positions
+relative to the mesh's centre, all three failed: the far scene fought itself, the windows
+vanished, and the far-off cubes deformed.
 
 ### Coincident faces: `zfight`
 
+```sh
+cargo run --release -p cad-render --example torture -- zfight
+```
+
 ![A blue block with a flush lid, an overlapping orange block, and labels just above its top](docs/images/torture-zfight.png)
 
-A blue block, with a second body: a lid lying flush on its top with the same triangles, an
-orange block overlapping it with tops and fronts flush, and a white label 0.001 mm or
-0.00001 mm above its top.
-
-**All four cases pass.** Where the two bodies share a face, the body drawn later wins every
-pixel, and the 0.00001 mm label is drawn whole.
-
-Before depth came from each triangle's plane, the overlapping bodies speckled: 40% of the
-shared area showed the "losing" body, in orange-and-blue blotches. More precision could not
-have helped, because the faces are in exactly the same place; the two triangulations simply
-rounded their interpolated depth differently. The 0.00001 mm label, about one part in 19
-million of the distance, broke into islands on 15% of the block's pixels.
+A blue block with a lid lying flush on top, an orange block overlapping it with tops and
+fronts flush, and a white label 0.001 mm and 0.00001 mm above its top. **All four pass.**
+Where two bodies share a face, the one drawn later wins every pixel; the 0.00001 mm label,
+about one part in 19 million of the distance, is drawn whole. Before depth came from each
+triangle's plane, the overlapping bodies speckled on 40% of the shared area.
 
 ### Slivers and bad input: `slivers`
 
-![A starburst of 200,000 slivers, a sheet of 600,000 needles, and a plate under zero-area triangles](docs/images/torture-slivers.png)
+```sh
+cargo run --release -p cad-render --example torture -- slivers
+```
 
-A starburst of 200,000 fan triangles, each 1.6 micrometres wide at the rim. A sheet of
-600,000 needles with an aspect ratio of 500,000 to 1. A plate under 30,000 zero-area
-triangles. Then a set of meshes that should be refused.
+![Sea urchins of 20,000 and 100,000 hair-thin spikes in baked light](docs/images/torture-slivers.jpg)
 
-**All of it passes.** The slivers and needles have no cracks and no wrong pixels; their
-Triangles and Wireframe views turn to noise and solid colour, with thousands of triangles per
-pixel. The 30,000 zero-area triangles are left out at upload: the plate draws clean, nothing
-picks them, and they draw no edges. NaN and infinite positions are refused with an error
-that names the vertex, and zero-length normals are replaced by the triangle's own, so those
-faces are lit. Empty meshes and missing vertices are refused as before.
-
-Before these fixes, the zero-area triangles drew stray edge lines over the whole plate and
-364 pixels picked them, bad positions were accepted silently, and zero-length normals drew
-faces black.
+Sea urchins of 20,000 and **100,000 hair-thin spikes**, each spike three slivers tens of
+thousands of times longer than they are thick, in baked light. The larger hides 30,000
+zero-area triangles among its spikes; upload leaves them out, and nothing picks them. Then a
+set of meshes that must be refused. **Everything passes**: empty meshes, missing vertices,
+and NaN or infinite positions are refused with an error, and zero-length normals are lit
+from the triangle's own normal. Baking the large urchin's million vertices takes 16 s.
 
 ### Thin walls: `thin`
 
-![Open boxes with walls of 1 mm, 0.01 mm, and 0.0001 mm: blue outside, red inside](docs/images/torture-thin.png)
+```sh
+cargo run --release -p cad-render --example torture -- thin
+```
 
-An open-topped 40 mm box, blue outside, red inside, with a yellow rim. Red must never show
-through blue.
+![A finned heat sink with fins from 1 mm down to 0.0001 mm thick](docs/images/torture-thin.png)
 
-**All four cases pass.** Walls down to a tenth of a micrometre, about one part in a million
-of the viewing distance, show no red, even with the clip planes left loose at 0.1 mm to
-100 m. Before these fixes, the 0.0001 mm wall leaked red on 3.6% of the box's pixels, and the
-0.01 mm wall with loose clip planes on 3.1%.
+A heat sink of 40 fins, from 1 mm down to **0.0001 mm thick**, in baked light. Each fin's two
+sides are separate faces, so a back side showing through the front is a wrong pick. **All
+four pass**, including 0.01 mm fins with the clip planes left loose at 0.1 mm to 100 m.
 
 ### Picking at the pixel limit: `picking`
 
-![The Mandelbrot set drawn as 576,000 one-pixel faces, and rebuilt from picks alone](docs/images/torture-picking.png)
+```sh
+cargo run --release -p cad-render --example torture -- picking
+```
 
-The Mandelbrot set built from **576,000 faces of one pixel each**, then from 1.2 million faces
-of 0.7 pixel. Then 2,500 cubes from 0.1 to 1.5 pixels across. The "Rebuilt from picks" view
-colours each pixel by the face its click would return, and nothing else, so a perfect copy of
-the picture means picking is exact. All three pass, with no wrong pixels at one pixel per
-face. With 0.7-pixel faces, about one pixel centre in seven lands exactly on an edge, and the
-GPU's choice there counts as within precision.
+![The Mandelbrot set drawn as 576,000 one-pixel faces, and rebuilt from picks alone](docs/images/torture-picking.jpg)
+
+The Mandelbrot set built from **576,000 faces of one pixel each**, then 1.2 million faces of
+0.7 pixel, then 2,500 cubes from 0.1 to 1.5 pixels across. "Rebuilt from picks" colours each
+pixel by the face its click returns, and nothing else, so a perfect copy means picking is
+exact. All three pass. With 0.7-pixel faces, about one pixel centre in seven lands exactly on
+an edge, and the GPU's choice there counts as within precision.
 
 ### Boolean chains: `occt_torture`
 
+```sh
+cargo run --release -p cad-testkit --example occt_torture
+```
+
 ![A plate cut by 256 pockets, and a union of 256 boxes, with Faces and Wireframe views](docs/images/torture-occt.png)
 
-A plate cut by **256 pockets**, one boolean at a time, and a **union of 256 overlapping
-boxes**. Both are built in OpenCascade, tessellated, and rendered. Both pass. Volumes match
-the exact values within 2e-14 relative, every output face is accounted for in the history
-maps, and no pixel picks the wrong face. Each boolean gets slower as the shape grows: 16 ms
-for the first cut and 93 ms for the last, 11 s for the whole chain. The Faces view shows that
-the union keeps every split top face (1,946 faces), because the kernel does not yet merge
-coplanar faces.
+A plate cut by **256 pockets** and a **union of 256 overlapping boxes**, one boolean at a
+time in OpenCascade, through the `Kernel` trait, then tessellated and rendered. Both pass.
+Volumes match the exact values within 2e-14 relative, every output face is accounted for in
+the history maps, and no pixel picks the wrong face. Each boolean slows as the shape grows,
+from tens of milliseconds to over a hundred; the Faces view shows that the union keeps every
+split top face (1,946 faces), because the kernel does not yet merge coplanar faces.
 
 ## Inside the repository
 

@@ -477,13 +477,18 @@ pub fn run_gpu(
     renderer: &Renderer,
     mesh: &Mesh,
     colors: &[[u8; 3]],
+    light: Option<&[f32]>,
     camera: &Camera,
     (width, height): (u32, u32),
     main: ViewMode,
 ) -> DynResult<GpuRun> {
     renderer.set_view_mode(main);
+    renderer.set_wire_overlay(false);
     let started = Instant::now();
-    let scene = renderer.upload_with_colors(mesh, colors)?;
+    let scene = match light {
+        Some(light) => renderer.upload_baked(mesh, colors, light)?,
+        None => renderer.upload_with_colors(mesh, colors)?,
+    };
     renderer.finish()?;
     let upload = started.elapsed();
 
@@ -630,8 +635,8 @@ pub fn guarded<T>(renderer: &Renderer, work: impl FnOnce() -> DynResult<T>) -> D
 
 /// Size of the main, lit view of a case. Checks run at this size.
 pub const MAIN: (u32, u32) = (960, 600);
-/// Size of each technical view beside it: three stack to the main view's height.
-pub const INSET: (u32, u32) = (320, 200);
+/// Size of each technical view beside it: four stack to the main view's height.
+pub const INSET: (u32, u32) = (240, 150);
 
 /// A technical view beside the main one.
 #[derive(Clone, Copy)]
@@ -640,6 +645,10 @@ pub enum Inset {
     View(ViewMode),
     /// The scene in a view mode from another camera, with a label.
     Zoom(ViewMode, Camera, &'static str),
+    /// As `Zoom`, with every triangle outlined over the view.
+    Wired(ViewMode, Camera, &'static str),
+    /// A path-traced reference from the case camera, on the CPU: needs `Shot::trace`.
+    PathTraced,
     /// Where the GPU disagrees with the double-precision reference.
     Errors,
     /// The picture rebuilt from picking alone: each pixel coloured by the face it picks.
@@ -662,7 +671,13 @@ pub struct Shot<'a> {
     pub forbidden: &'a [u32],
     /// The view mode of the main view, normally [`ViewMode::Lit`].
     pub main: ViewMode,
-    /// Three technical views.
+    /// Light baked per vertex, if any (see [`Renderer::upload_baked`]).
+    pub light: Option<&'a [f32]>,
+    /// Whether the lit view draws face boundary edges.
+    pub edges: bool,
+    /// The ray tracer and sky, for [`Inset::PathTraced`].
+    pub trace: Option<(&'a cad_render::trace::Tracer, cad_render::trace::Sky)>,
+    /// Three technical views; the error map always follows them.
     pub insets: [Inset; 3],
 }
 
@@ -682,7 +697,6 @@ pub fn run_case(renderer: &Renderer, shot: &Shot) -> DynResult<CaseOutcome> {
         f.dedup();
         f.len()
     };
-    println!("  case: {}", shot.title);
     println!(
         "    {} triangles, {} faces, {width} x {height} px, near {} mm, far {} mm",
         mesh.triangles.len(),
@@ -691,7 +705,16 @@ pub fn run_case(renderer: &Renderer, shot: &Shot) -> DynResult<CaseOutcome> {
         shot.camera.far
     );
     let gpu = match guarded(renderer, || {
-        run_gpu(renderer, mesh, shot.colors, shot.camera, MAIN, shot.main)
+        renderer.set_edges(shot.edges);
+        run_gpu(
+            renderer,
+            mesh,
+            shot.colors,
+            shot.light,
+            shot.camera,
+            MAIN,
+            shot.main,
+        )
     }) {
         Ok(gpu) => gpu,
         Err(e) => {
@@ -777,8 +800,9 @@ pub fn run_case(renderer: &Renderer, shot: &Shot) -> DynResult<CaseOutcome> {
     stats(&mut main, &lines, passed, failed);
     blit(&mut panel, &main, MARGIN, MARGIN);
 
-    for (i, inset) in shot.insets.iter().enumerate() {
-        let (image, name) = inset_image(renderer, &gpu, shot, &s, *inset)?;
+    let insets = shot.insets.iter().copied().chain([Inset::Errors]);
+    for (i, inset) in insets.enumerate() {
+        let (image, name) = inset_image(renderer, &gpu, shot, &s, inset)?;
         let y = MARGIN + i as u32 * INSET.1;
         let x = MARGIN + width + MARGIN;
         let mut image = image;
@@ -790,6 +814,7 @@ pub fn run_case(renderer: &Renderer, shot: &Shot) -> DynResult<CaseOutcome> {
         }
     }
     renderer.set_view_mode(ViewMode::Lit);
+    renderer.set_edges(true);
     Ok(CaseOutcome { checks, panel })
 }
 
@@ -811,7 +836,35 @@ fn inset_image(
             renderer.set_view_mode(mode);
             (renderer.render(&gpu.scene, &camera, w, h)?.image, name)
         }
-        Inset::Errors => (error_map(&gpu.result.image, s), "ERRORS VS F64 REFERENCE"),
+        Inset::Wired(mode, camera, name) => {
+            renderer.set_view_mode(mode);
+            renderer.set_wire_overlay(true);
+            let image = renderer.render(&gpu.scene, &camera, w, h)?.image;
+            renderer.set_wire_overlay(false);
+            (image, name)
+        }
+        Inset::PathTraced => {
+            let (bvh, sky) = shot
+                .trace
+                .ok_or("a path-traced view needs a ray tracer in the shot")?;
+            let started = Instant::now();
+            let image = cad_render::trace::path_trace(
+                shot.mesh,
+                shot.colors,
+                bvh,
+                shot.camera,
+                (w, h),
+                sky,
+                48,
+                2,
+            );
+            println!(
+                "    path traced {w} x {h} at 48 samples per pixel in {:.0} ms",
+                ms(started.elapsed())
+            );
+            (image, "PATH TRACED (CPU)")
+        }
+        Inset::Errors => (error_map(&gpu.result.image, s), "ERRORS VS F64 REF"),
         Inset::Picks => {
             let source = &gpu.result;
             let mut rebuilt = blank(source.image.width, source.image.height, [2, 2, 3, 255]);
@@ -836,8 +889,9 @@ fn label_of(mode: ViewMode) -> &'static str {
         ViewMode::Unlit => "UNLIT",
         ViewMode::Wireframe => "WIREFRAME",
         ViewMode::Triangles => "TRIANGLES",
-        ViewMode::Faces => "FACES (PICK BUFFER)",
+        ViewMode::Faces => "FACES (ID BUFFER)",
         ViewMode::Normals => "WORLD NORMAL",
+        ViewMode::Lighting => "LIGHTING ONLY",
         ViewMode::Depth => "SCENE DEPTH",
         ViewMode::Overdraw => "OVERDRAW",
     }

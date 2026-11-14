@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc;
 
 use cad_kernel::{FaceIndex, Mesh};
@@ -46,7 +46,8 @@ const PIXEL_BYTES: u32 = 4;
 /// same in all of them. Face boundary edges are drawn in the lit mode only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
-    /// Each face in its colour, lit from the eye, with dark edges on face boundaries.
+    /// Each face in its colour with dark edges on face boundaries. Lit by the scene's baked
+    /// lighting when it has some (see [`Renderer::upload_baked`]), otherwise from the eye.
     #[default]
     Lit,
     /// Each face in its colour, unlit and without edges: the base colour alone.
@@ -59,6 +60,9 @@ pub enum ViewMode {
     Faces,
     /// The world-space surface normal as red, green, and blue.
     Normals,
+    /// The lighting alone, on white surfaces: the baked light when the scene has some,
+    /// otherwise the light from the eye.
+    Lighting,
     /// Distance from the eye as a colour ramp, striped where the stored depth value crosses
     /// each 1/64. Stripes bunch where depth precision is spent; where there are none, nearby
     /// surfaces share a depth value and can fight.
@@ -70,13 +74,14 @@ pub enum ViewMode {
 
 impl ViewMode {
     /// Every mode, in order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Lit,
         Self::Unlit,
         Self::Wireframe,
         Self::Triangles,
         Self::Faces,
         Self::Normals,
+        Self::Lighting,
         Self::Depth,
         Self::Overdraw,
     ];
@@ -91,6 +96,7 @@ impl ViewMode {
             Self::Triangles => "Triangles",
             Self::Faces => "Faces",
             Self::Normals => "World normal",
+            Self::Lighting => "Lighting only",
             Self::Depth => "Scene depth",
             Self::Overdraw => "Overdraw",
         }
@@ -106,6 +112,7 @@ impl ViewMode {
             Self::Normals => 5,
             Self::Depth => 6,
             Self::Overdraw => 7,
+            Self::Lighting => 8,
         }
     }
 
@@ -145,6 +152,8 @@ pub struct Renderer {
     planes_layout: wgpu::BindGroupLayout,
     adapter: String,
     mode: AtomicU8,
+    overlay: AtomicBool,
+    show_edges: AtomicBool,
 }
 
 /// A mesh uploaded to the GPU.
@@ -160,9 +169,17 @@ pub struct Scene {
     /// so a small part far from the world origin keeps the precision of single floats.
     origin: Vec3,
     skipped: u32,
+    /// Whether vertices carry baked light.
+    baked: bool,
 }
 
 impl Scene {
+    /// Whether the scene carries baked lighting.
+    #[must_use]
+    pub fn is_baked(&self) -> bool {
+        self.baked
+    }
+
     /// Number of triangles drawn.
     #[must_use]
     pub fn triangle_count(&self) -> u32 {
@@ -432,6 +449,8 @@ impl Renderer {
             planes_layout,
             adapter,
             mode: AtomicU8::new(ViewMode::default().code()),
+            overlay: AtomicBool::new(false),
+            show_edges: AtomicBool::new(true),
         }
     }
 
@@ -450,6 +469,30 @@ impl Renderer {
     #[must_use]
     pub fn view_mode(&self) -> ViewMode {
         ViewMode::from_code(self.mode.load(Ordering::Relaxed))
+    }
+
+    /// Sets whether later draws outline every triangle in dark lines over the view mode, as
+    /// engines overlay a wireframe on a shaded view. Overdraw is never overlaid.
+    pub fn set_wire_overlay(&self, on: bool) {
+        self.overlay.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether draws outline every triangle over the view mode.
+    #[must_use]
+    pub fn wire_overlay(&self) -> bool {
+        self.overlay.load(Ordering::Relaxed)
+    }
+
+    /// Sets whether the lit view draws face boundary edges. On by default; a scene that is
+    /// not a part, such as terrain split into patches, may look better without them.
+    pub fn set_edges(&self, on: bool) {
+        self.show_edges.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether the lit view draws face boundary edges.
+    #[must_use]
+    pub fn edges(&self) -> bool {
+        self.show_edges.load(Ordering::Relaxed)
     }
 
     /// The graphics adapter in use, for logs and reports.
@@ -486,6 +529,34 @@ impl Renderer {
         mesh: &Mesh,
         colors: &[[u8; 3]],
     ) -> Result<Scene, RenderError> {
+        self.upload_inner(mesh, colors, None)
+    }
+
+    /// Uploads a mesh with a colour per face, as [`Renderer::upload_with_colors`], and light
+    /// baked per vertex: `light[i]` is the light at `mesh.positions[i]`, from 0 for none to 1
+    /// for full, computed offline (for example by ray tracing shadows and ambient occlusion).
+    /// The lit view shows faces in that light instead of the light from the eye. Values are
+    /// clamped to 0 to 1 and stored in eight bits.
+    ///
+    /// # Errors
+    ///
+    /// As [`Renderer::upload_with_colors`], and [`RenderError::InvalidMesh`] when `light` and
+    /// the positions differ in length.
+    pub fn upload_baked(
+        &self,
+        mesh: &Mesh,
+        colors: &[[u8; 3]],
+        light: &[f32],
+    ) -> Result<Scene, RenderError> {
+        self.upload_inner(mesh, colors, Some(light))
+    }
+
+    fn upload_inner(
+        &self,
+        mesh: &Mesh,
+        colors: &[[u8; 3]],
+        light: Option<&[f32]>,
+    ) -> Result<Scene, RenderError> {
         let limits = self.device.limits();
         let fits = |bytes, what: &str| within(bytes, limits.max_buffer_size, what);
         let triangles = u64::try_from(mesh.triangles.len()).unwrap_or(u64::MAX);
@@ -506,7 +577,7 @@ impl Renderer {
             planes,
             kept,
             origin,
-        } = prepare(mesh, colors)?;
+        } = prepare(mesh, colors, light)?;
         let plane_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -566,6 +637,7 @@ impl Renderer {
             edge_vertex_count: count(lines.len(), 3)?,
             origin,
             skipped: count(mesh.triangles.len() - kept.len(), 1)?,
+            baked: light.is_some(),
         })
     }
 
@@ -614,11 +686,12 @@ impl Renderer {
         let mut globals = [0.0_f32; GLOBALS_WORDS];
         // Edges move toward the eye by the depth of EDGE_PULL_PX pixels at their distance.
         #[allow(clippy::cast_possible_truncation)] // The GPU works in single precision.
+        let flags = u8::from(scene.baked) | (u8::from(self.wire_overlay()) << 1);
         let params = [
             f32::from(mode.code()),
             camera.near as f32,
             camera.far as f32,
-            0.0,
+            f32::from(flags),
         ];
         let pull = EDGE_PULL_PX * 2.0 * (camera.fov_y / 2.0).tan() / f64::from(targets.height);
         #[allow(clippy::cast_possible_truncation)] // The GPU works in single precision.
@@ -698,7 +771,8 @@ impl Renderer {
             });
             pass.set_vertex_buffer(0, scene.face_vertices.slice(..));
             pass.draw(0..scene.face_vertex_count, 0..1);
-            if let (Some(edges), true) = (&scene.edge_vertices, mode.draws_edges()) {
+            if let (Some(edges), true) = (&scene.edge_vertices, mode.draws_edges() && self.edges())
+            {
                 pass.set_pipeline(&self.edges);
                 pass.set_vertex_buffer(0, edges.slice(..));
                 pass.draw(0..scene.edge_vertex_count, 0..1);
@@ -964,7 +1038,11 @@ struct Prepared {
 /// Checks a mesh and expands it to three independent vertices per triangle, eight words each:
 /// position relative to the mesh's centre and normal as float bits, the face index, and the
 /// face's sRGB colour packed as RGBA bytes. Triangles without area are left out.
-fn prepare(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Prepared, RenderError> {
+fn prepare(
+    mesh: &Mesh,
+    colors: &[[u8; 3]],
+    light: Option<&[f32]>,
+) -> Result<Prepared, RenderError> {
     let invalid = |what: String| Err(RenderError::InvalidMesh(what));
     if mesh.normals.len() != mesh.positions.len() {
         return invalid("normals and positions differ in length".into());
@@ -974,6 +1052,9 @@ fn prepare(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Prepared, RenderError> {
     }
     if mesh.triangles.is_empty() {
         return invalid("mesh has no triangles".into());
+    }
+    if light.is_some_and(|l| l.len() != mesh.positions.len()) {
+        return invalid("baked light and positions differ in length".into());
     }
     let finite = |v: Vec3| v.x.is_finite() && v.y.is_finite() && v.z.is_finite();
     if let Some(i) = mesh.positions.iter().position(|p| !finite(*p)) {
@@ -1011,7 +1092,7 @@ fn prepare(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Prepared, RenderError> {
             .get(face.0 as usize)
             .copied()
             .unwrap_or(DEFAULT_FACE_COLOR);
-        let color = u32::from_le_bytes([r, g, b, 255]);
+        let rgb = [r, g, b];
         for (&index, &p) in triangle.iter().zip(&corners) {
             // `position` succeeded, so the normal at the same index exists.
             let given = mesh
@@ -1027,7 +1108,12 @@ fn prepare(mesh: &Mesh, colors: &[[u8; 3]]) -> Result<Prepared, RenderError> {
             words.extend(local(p, origin).map(f32::to_bits));
             words.extend(local(n, Vec3::ZERO).map(f32::to_bits));
             words.push(face.0);
-            words.push(color);
+            // The alpha byte carries baked light; without a bake it is full.
+            let baked = light
+                .and_then(|l| l.get(index as usize))
+                .map_or(255, |&l| (l.clamp(0.0, 1.0) * 255.0).round() as u8);
+            let [r, g, b] = rgb;
+            words.push(u32::from_le_bytes([r, g, b, baked]));
         }
         planes.extend(plane(flat, corners[0] - origin));
         kept.push(k);
@@ -1144,7 +1230,7 @@ mod tests {
 
     #[test]
     fn vertex_words_carry_the_face_colour_or_the_default() -> TestResult {
-        let words = prepare(&two_quads(), &[[10, 20, 30]])?.words;
+        let words = prepare(&two_quads(), &[[10, 20, 30]], None)?.words;
         assert_eq!(words.len(), 4 * 3 * FACE_VERTEX_WORDS);
         let color = |vertex: usize| words[vertex * FACE_VERTEX_WORDS + 7];
         assert_eq!(color(0), u32::from_le_bytes([10, 20, 30, 255]));
@@ -1321,7 +1407,7 @@ mod tests {
         for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let mut mesh = two_quads();
             mesh.positions[3].y = bad;
-            match prepare(&mesh, &[]) {
+            match prepare(&mesh, &[], None) {
                 Err(RenderError::InvalidMesh(m)) => assert!(m.contains("vertex 3"), "{m}"),
                 other => panic!(
                     "{bad}: expected InvalidMesh, got {:?}",
@@ -1333,7 +1419,7 @@ mod tests {
 
     #[test]
     fn triangles_without_area_are_left_out() -> TestResult {
-        let prepared = prepare(&with_degenerates(), &[])?;
+        let prepared = prepare(&with_degenerates(), &[], None)?;
         assert_eq!(prepared.kept, [0, 1, 2, 3]);
         assert_eq!(prepared.words.len(), 4 * 3 * FACE_VERTEX_WORDS);
         Ok(())
@@ -1356,10 +1442,10 @@ mod tests {
             mesh
         };
         // A height of a millionth of the length is a sliver worth drawing.
-        assert_eq!(prepare(&sliver(1e-4), &[])?.kept, [0]);
+        assert_eq!(prepare(&sliver(1e-4), &[], None)?.kept, [0]);
         // A hundred-billionth is not.
         assert!(matches!(
-            prepare(&sliver(1e-9), &[]),
+            prepare(&sliver(1e-9), &[], None),
             Err(RenderError::InvalidMesh(m)) if m.contains("no triangle with area")
         ));
         Ok(())
@@ -1370,7 +1456,7 @@ mod tests {
         let mut mesh = two_quads();
         mesh.normals[0] = Vec3::ZERO;
         mesh.normals[1] = Vec3::new(f64::NAN, 0.0, 0.0);
-        let words = prepare(&mesh, &[])?.words;
+        let words = prepare(&mesh, &[], None)?.words;
         let normal = |vertex: usize| {
             let at = vertex * FACE_VERTEX_WORDS + 3;
             [0, 1, 2].map(|i| f32::from_bits(words[at + i]))
@@ -1387,7 +1473,7 @@ mod tests {
         for p in &mut mesh.positions {
             *p = *p + far;
         }
-        let prepared = prepare(&mesh, &[])?;
+        let prepared = prepare(&mesh, &[], None)?;
         assert_eq!(prepared.origin, far);
         let first = [0, 1, 2].map(|i| f32::from_bits(prepared.words[i]));
         assert_eq!(first, [-2.0, -1.0, 0.0]);
@@ -1498,7 +1584,7 @@ mod tests {
         let mut mesh = Mesh::default();
         square(&mut mesh, 1, false, 0);
         square(&mut mesh, 3, true, 1);
-        let planes = prepare(&mesh, &[])?.planes;
+        let planes = prepare(&mesh, &[], None)?.planes;
         assert_eq!(planes.len(), (2 + 18) * 4);
         for plane in planes.chunks_exact(4) {
             assert_eq!(plane, [0.0, 0.0, 1.0, 0.0]);
@@ -1539,5 +1625,133 @@ mod tests {
             }
             other => panic!("expected InvalidMesh, got {other:?}"),
         }
+    }
+
+    /// The sRGB byte for a linear value, as the GPU writes it.
+    fn srgb(linear: f64) -> u8 {
+        let c = if linear <= 0.003_130_8 {
+            linear * 12.92
+        } else {
+            1.055 * linear.powf(1.0 / 2.4) - 0.055
+        };
+        (c * 255.0).round() as u8
+    }
+
+    /// The linear value of an sRGB byte.
+    fn linear(byte: u8) -> f64 {
+        let c = f64::from(byte) / 255.0;
+        if c <= 0.040_45 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    #[test]
+    fn baked_light_rides_in_the_alpha_byte_of_each_vertex() -> TestResult {
+        let mesh = two_quads();
+        let light: Vec<f32> = (0..mesh.positions.len())
+            .map(|i| match i {
+                0 => -1.0,
+                1 => 2.0,
+                _ => 0.5,
+            })
+            .collect();
+        let words = prepare(&mesh, &[[10, 20, 30]], Some(&light))?.words;
+        let alpha = |vertex: usize| words[vertex * FACE_VERTEX_WORDS + 7].to_le_bytes()[3];
+        assert_eq!([alpha(0), alpha(1), alpha(2)], [0, 255, 128]);
+        assert_eq!(words[7].to_le_bytes()[..3], [10, 20, 30]);
+        let unbaked = prepare(&mesh, &[], None)?.words;
+        assert_eq!(unbaked[7].to_le_bytes()[3], 255);
+        Ok(())
+    }
+
+    #[test]
+    fn baked_light_must_match_the_positions() {
+        let result = prepare(&two_quads(), &[], Some(&[1.0; 3]));
+        assert!(matches!(result, Err(RenderError::InvalidMesh(m)) if m.contains("baked light")));
+    }
+
+    #[test]
+    fn lit_faces_take_baked_light_instead_of_the_light_from_the_eye() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let mesh = two_quads();
+        let light = vec![0.25; mesh.positions.len()];
+        let scene = renderer.upload_baked(&mesh, &[[200, 100, 50]], &light)?;
+        assert!(scene.is_baked());
+        assert!(!renderer.upload(&mesh)?.is_baked());
+        renderer.set_view_mode(ViewMode::Lit);
+        let frame = renderer.render(&scene, &camera(), SIZE, SIZE)?;
+        let expected = [200, 100, 50].map(|c| srgb(linear(c) * f64::from(64u8) / 255.0));
+        let got = pixel(&frame, at(-1.0, -0.5))?;
+        assert!(
+            close(got, [expected[0], expected[1], expected[2], 255], 3),
+            "{got:?}"
+        );
+        renderer.set_view_mode(ViewMode::Lighting);
+        let frame = renderer.render(&scene, &camera(), SIZE, SIZE)?;
+        let grey = srgb(0.85 * 64.0 / 255.0);
+        assert!(close(
+            pixel(&frame, at(1.0, 0.0))?,
+            [grey, grey, grey, 255],
+            3
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn lighting_view_without_a_bake_shows_the_light_from_the_eye() -> TestResult {
+        let renderer = Renderer::headless()?;
+        let frame = render(&renderer, &two_quads(), &[], ViewMode::Lighting)?;
+        // Faces square to the eye are fully lit: 0.85 of white.
+        let grey = srgb(0.85);
+        assert!(close(
+            pixel(&frame, at(1.0, 0.0))?,
+            [grey, grey, grey, 255],
+            3
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn the_wire_overlay_darkens_triangle_sides_only() -> TestResult {
+        let renderer = Renderer::headless()?;
+        assert!(!renderer.wire_overlay());
+        let mesh = two_quads();
+        let plain = render(&renderer, &mesh, &[[200, 200, 200]], ViewMode::Unlit)?;
+        renderer.set_wire_overlay(true);
+        assert!(renderer.wire_overlay());
+        let wired = render(&renderer, &mesh, &[[200, 200, 200]], ViewMode::Unlit)?;
+        renderer.set_wire_overlay(false);
+        // (-1, 0) is on the left quad's diagonal; (-0.5, -0.5) is 7 px from any side.
+        let side = at(-1.0, 0.0);
+        assert!(pixel(&wired, side)?[0] < 120, "{:?}", pixel(&wired, side)?);
+        assert!(pixel(&plain, side)?[0] > 190);
+        let inside = at(-0.5, -0.5);
+        assert_eq!(pixel(&wired, inside)?, pixel(&plain, inside)?);
+        Ok(())
+    }
+
+    #[test]
+    fn edges_can_be_turned_off_in_the_lit_view() -> TestResult {
+        let renderer = Renderer::headless()?;
+        assert!(renderer.edges());
+        let mesh = two_quads();
+        let row = at(0.0, -0.5).1;
+        let darkest = |frame: &Frame| {
+            (28..36)
+                .filter_map(|x| frame.image.pixel(x, row))
+                .map(|p| p[0])
+                .min()
+                .unwrap_or(0)
+        };
+        let with = render(&renderer, &mesh, &[[200, 100, 50]], ViewMode::Lit)?;
+        renderer.set_edges(false);
+        assert!(!renderer.edges());
+        let without = render(&renderer, &mesh, &[[200, 100, 50]], ViewMode::Lit)?;
+        renderer.set_edges(true);
+        assert!(darkest(&with) < 60);
+        assert!(darkest(&without) > 150, "{}", darkest(&without));
+        Ok(())
     }
 }

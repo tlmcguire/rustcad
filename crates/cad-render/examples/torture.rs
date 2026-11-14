@@ -34,11 +34,12 @@ mod verify;
 #[path = "support/viewer.rs"]
 mod viewer;
 
-use scenes::{Builder, gauss, hsv, mix, torus_knot, unit};
+use cad_render::trace::{self, Sky, Tracer};
+use scenes::{Builder, hsv, torus_knot};
 use verify::{Check, DynResult, Inset, MAIN, Shot, look, print_checks, run_case, stack};
 
-const DEMOS: [&str; 8] = [
-    "modes", "dense", "bodies", "depth", "zfight", "slivers", "thin", "picking",
+const DEMOS: [&str; 9] = [
+    "modes", "terrain", "dense", "bodies", "depth", "zfight", "slivers", "thin", "picking",
 ];
 
 const WARNING: &str = "\
@@ -63,8 +64,12 @@ pub struct Case {
     pub forbidden: Vec<u32>,
     /// The view mode of the main view.
     pub main: ViewMode,
-    /// The technical views shown beside the main one.
+    /// The technical views shown beside the main one; the error map always follows.
     pub insets: [Inset; 3],
+    /// A sun and sky to bake lighting from by ray tracing, if the case is lit that way.
+    pub sky: Option<Sky>,
+    /// Whether the lit view draws face boundary edges.
+    pub edges: bool,
 }
 
 impl Case {
@@ -77,10 +82,24 @@ impl Case {
             main: ViewMode::Lit,
             insets: [
                 Inset::View(ViewMode::Faces),
+                Inset::View(ViewMode::Lighting),
                 Inset::View(ViewMode::Depth),
-                Inset::Errors,
             ],
+            sky: None,
+            edges: true,
         }
+    }
+
+    /// Leaves out face boundary edges, for scenes that are not parts.
+    fn no_edges(mut self) -> Self {
+        self.edges = false;
+        self
+    }
+
+    /// Bakes the case's lighting from `sky` by ray tracing before it is drawn.
+    fn lit(mut self, sky: Sky) -> Self {
+        self.sky = Some(sky);
+        self
     }
 
     fn insets(mut self, insets: [Inset; 3]) -> Self {
@@ -113,9 +132,80 @@ impl Demo {
     }
 }
 
+/// High-quality stills for the README: rendered at twice the size and box-filtered down, the
+/// canyon lit and in the triangles view, and the city path traced.
+fn stills(renderer: &Renderer, out: &std::path::Path) -> DynResult<()> {
+    let (w, h) = (1280u32, 720u32);
+    let camera = Camera::framing(Vec3::new(0.0, 0.0, 4.0), 80.0, Vec3::new(0.55, -1.0, 0.7))?;
+    let (mesh, colors) = scenes::canyon(707);
+    let (tracer, light) = bake(&mesh, SUN);
+    let scene = renderer.upload_baked(&mesh, &colors, &light)?;
+    renderer.set_edges(false);
+    renderer.set_view_mode(ViewMode::Lit);
+    let big = renderer.render(&scene, &camera, 2 * w, 2 * h)?.image;
+    verify::downscale(&big, w, h).write_png(out.join("render-canyon-lit.png"))?;
+    println!("  wrote render-canyon-lit.png: 1 million triangles, baked light");
+    // The triangles view of a coarser canyon, so each triangle is a few pixels across.
+    let (coarse, coarse_colors) = scenes::canyon(180);
+    let coarse_scene = renderer.upload_with_colors(&coarse, &coarse_colors)?;
+    renderer.set_view_mode(ViewMode::Triangles);
+    renderer.set_wire_overlay(true);
+    let big = renderer.render(&coarse_scene, &camera, 2 * w, 2 * h)?.image;
+    verify::downscale(&big, w, h).write_png(out.join("render-canyon-triangles.png"))?;
+    println!("  wrote render-canyon-triangles.png: 64,800 triangles with the wire overlay");
+    renderer.set_view_mode(ViewMode::Lit);
+    renderer.set_wire_overlay(false);
+    renderer.set_edges(true);
+    drop((tracer, scene));
+
+    let (mesh, colors) = scenes::city(120, 1.0, Vec3::ZERO, 0);
+    let tracer = Tracer::new(&mesh);
+    let camera = look(
+        Vec3::new(-150.0, -190.0, 70.0),
+        Vec3::new(10.0, 10.0, 0.0),
+        5.0,
+        2000.0,
+    );
+    let started = std::time::Instant::now();
+    let (pw, ph) = (960u32, 540u32);
+    let image = trace::path_trace(&mesh, &colors, &tracer, &camera, (pw, ph), SUN, 128, 2);
+    image.write_png(out.join("render-city-path-traced.png"))?;
+    println!(
+        "  wrote render-city-path-traced.png: {pw} x {ph}, 128 samples per pixel, {:.1} s",
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+/// The sun and sky of the lit demos: sun high in the south-west.
+const SUN: Sky = Sky {
+    sun: Vec3::new(-0.6, -0.45, 0.5),
+    sun_share: 0.62,
+};
+
+/// Builds the ray tracer for a mesh and bakes its lighting, reporting the time taken.
+pub fn bake(mesh: &Mesh, sky: Sky) -> (Tracer, Vec<f32>) {
+    let started = std::time::Instant::now();
+    let bvh = Tracer::new(mesh);
+    let built = started.elapsed();
+    let started = std::time::Instant::now();
+    let rays = 12;
+    let light = trace::bake(mesh, &bvh, sky, rays, 0.05);
+    println!(
+        "    ray tracing: hierarchy over {} triangles in {:.0} ms; baked {} vertices with {} rays each in {:.0} ms",
+        mesh.triangles.len(),
+        built.as_secs_f64() * 1000.0,
+        mesh.positions.len(),
+        rays + 1,
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    (bvh, light)
+}
+
 fn demo(name: &str) -> DynResult<Demo> {
     match name {
         "modes" => modes(),
+        "terrain" => terrain(),
         "dense" => dense(),
         "bodies" => bodies(),
         "depth" => depth(),
@@ -172,6 +262,8 @@ fn main() -> DynResult<()> {
             let (mesh, colors) = (case.build)();
             let label = name.to_uppercase();
             let title = case.title.to_uppercase();
+            println!("  case: {}", case.title);
+            let baked = case.sky.map(|sky| (bake(&mesh, sky), sky));
             let shot = Shot {
                 demo: &label,
                 title: &title,
@@ -180,12 +272,15 @@ fn main() -> DynResult<()> {
                 camera: &case.camera,
                 forbidden: &case.forbidden,
                 main: case.main,
+                light: baked.as_ref().map(|((_, light), _)| light.as_slice()),
+                edges: case.edges,
+                trace: baked.as_ref().map(|((bvh, _), sky)| (bvh, *sky)),
                 insets: case.insets,
             };
             let outcome = run_case(&renderer, &shot)?;
             let passed = outcome.passed();
             if demo.overview {
-                panels.push(overview(&renderer, &mesh, &colors, &case.camera)?);
+                panels.push(overview(&renderer, &shot)?);
             } else {
                 panels.push(outcome.panel);
             }
@@ -203,6 +298,9 @@ fn main() -> DynResult<()> {
         }
         let path = out.join(format!("torture-{name}.png"));
         stack(&panels).write_png(&path)?;
+        if name == "modes" {
+            stills(&renderer, &out)?;
+        }
         println!("  wrote {}", path.display());
         let n = checks.iter().filter(|c| !c.passed).count();
         if n > 0 {
@@ -222,17 +320,13 @@ fn main() -> DynResult<()> {
     }
 }
 
-/// Every view mode of one scene in a labelled grid, with a title bar.
-fn overview(
-    renderer: &Renderer,
-    mesh: &Mesh,
-    colors: &[[u8; 3]],
-    camera: &Camera,
-) -> DynResult<Image> {
-    let (tw, th) = (480, 300);
+/// Every view mode of one scene in a labelled grid with a title bar, and a path-traced
+/// reference beside them, in the manner of an engine's buffer visualization overview.
+fn overview(renderer: &Renderer, shot: &Shot) -> DynResult<Image> {
+    let (tw, th) = (384, 240);
     let m = verify::MARGIN;
     let header = 64;
-    let mut out = verify::blank(4 * tw + 5 * m, header + 2 * th + 3 * m, verify::FRAME);
+    let mut out = verify::blank(5 * tw + 6 * m, header + 2 * th + 3 * m, verify::FRAME);
     text::draw(
         &mut out,
         m + 6,
@@ -248,22 +342,45 @@ fn overview(
         1,
         [150, 220, 150, 255],
         &format!(
-            "{} TRIANGLES, {} FACES. EVERY MODE BUT OVERDRAW WRITES THE FACE ID BUFFER USED FOR PICKING.",
-            text::thousands(mesh.triangles.len() as u64),
-            text::thousands(colors.len() as u64)
+            "{} TRIANGLES, {} FACES. REAL TIME ON THE GPU: VIEWS 1-9. BAKED OFFLINE BY CPU RAY TRACING: THE LIGHT IN 1 AND 7. PATH TRACED ON THE CPU: LAST TILE.",
+            text::thousands(shot.mesh.triangles.len() as u64),
+            text::thousands(shot.colors.len() as u64)
         ),
     );
-    let scene = renderer.upload_with_colors(mesh, colors)?;
+    let scene = match shot.light {
+        Some(light) => renderer.upload_baked(shot.mesh, shot.colors, light)?,
+        None => renderer.upload_with_colors(shot.mesh, shot.colors)?,
+    };
+    renderer.set_edges(shot.edges);
+    let mut tiles = Vec::new();
     for (i, mode) in ViewMode::ALL.into_iter().enumerate() {
         renderer.set_view_mode(mode);
-        let mut tile = renderer.render(&scene, camera, tw, th)?.image;
-        text::label(
-            &mut tile,
-            8,
-            8,
-            &format!("{} {}", i + 1, mode.name().to_uppercase()),
+        let tile = renderer.render(&scene, shot.camera, tw, th)?.image;
+        tiles.push((tile, format!("{} {}", i + 1, mode.name().to_uppercase())));
+    }
+    renderer.set_view_mode(ViewMode::Lit);
+    renderer.set_edges(true);
+    if let Some((bvh, sky)) = shot.trace {
+        let started = std::time::Instant::now();
+        let image = trace::path_trace(
+            shot.mesh,
+            shot.colors,
+            bvh,
+            shot.camera,
+            (tw, th),
+            sky,
+            96,
+            2,
         );
-        let (col, row) = (i as u32 % 4, i as u32 / 4);
+        println!(
+            "    path traced the overview tile at 96 samples per pixel in {:.0} ms",
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+        tiles.push((image, "PATH TRACED (CPU)".to_string()));
+    }
+    for (i, (mut tile, name)) in tiles.into_iter().enumerate() {
+        text::label(&mut tile, 8, 8, &name);
+        let (col, row) = (i as u32 % 5, i as u32 / 5);
         verify::blit(
             &mut out,
             &tile,
@@ -271,40 +388,53 @@ fn overview(
             header + m + row * (th + m),
         );
     }
-    renderer.set_view_mode(ViewMode::Lit);
     Ok(out)
 }
 
-/// The scene for the view-mode overview: a ridged knot over a plate ringed with blocks.
-fn showcase() -> Model {
-    let (mesh, colors) = torus_knot(180, 24, false);
-    let mut b = Builder { mesh, colors };
-    b.colored_cube(
-        Vec3::new(-62.0, -62.0, -30.0),
-        Vec3::new(124.0, 124.0, 6.0),
-        64,
-        [150, 156, 168],
-    );
-    for i in 0..24u32 {
-        let a = std::f64::consts::TAU * f64::from(i) / 24.0;
-        let size = 4.0 + 3.0 * f64::from(i % 3);
-        let centre = Vec3::new(52.0 * a.cos(), 52.0 * a.sin(), -24.0);
-        b.colored_cube(
-            centre - Vec3::new(size / 2.0, size / 2.0, 0.0),
-            Vec3::new(size, size, size),
-            70 + 6 * i,
-            hsv(0.07 + 0.02 * f64::from(i % 4), 0.75, 0.95),
-        );
-    }
-    b.finish()
-}
-
 fn modes() -> DynResult<Demo> {
-    let camera = Camera::framing(Vec3::new(0.0, 0.0, -6.0), 72.0, Vec3::new(1.0, -1.25, 0.85))?;
+    let camera = Camera::framing(Vec3::new(0.0, 0.0, 6.0), 92.0, Vec3::new(0.55, -1.0, 0.85))?;
     Ok(Demo {
         overview: true,
-        ..Demo::of(vec![Case::new("knot on a plate", camera, showcase)])
+        ..Demo::of(vec![
+            Case::new("canyon, 12,800 triangles", camera, || scenes::canyon(80))
+                .lit(SUN)
+                .no_edges(),
+        ])
     })
+}
+
+/// A fractal canyon as dense as a sculpted game asset, lit by ray-traced shadows and
+/// ambient occlusion baked per vertex. Zoomed views show its triangles the way an engine
+/// shows a virtualized mesh.
+fn terrain() -> DynResult<Demo> {
+    let camera = Camera::framing(Vec3::new(0.0, 0.0, 6.0), 92.0, Vec3::new(0.55, -1.0, 0.85))?;
+    let peak = Vec3::new(-20.0, 30.0, 14.0);
+    let zoom = Camera {
+        target: peak,
+        fov_y: Camera::DEFAULT_FOV_Y / 8.0,
+        ..camera
+    };
+    let views = |label| {
+        [
+            Inset::Wired(ViewMode::Triangles, zoom, label),
+            Inset::View(ViewMode::Lighting),
+            Inset::PathTraced,
+        ]
+    };
+    Ok(Demo::of(vec![
+        Case::new("canyon, 1 million triangles, baked light", camera, || {
+            scenes::canyon(707)
+        })
+        .lit(SUN)
+        .no_edges()
+        .insets(views("TRIANGLES+WIRE 8X")),
+        Case::new("canyon, 4 million triangles, baked light", camera, || {
+            scenes::canyon(1414)
+        })
+        .lit(SUN)
+        .no_edges()
+        .insets(views("TRIANGLES+WIRE 8X")),
+    ]))
 }
 
 /// The ridged knot from 1 to 16 million triangles. Zoomed views show the detail appear.
@@ -333,9 +463,9 @@ fn dense() -> DynResult<Demo> {
                 move || torus_knot(along, around, true),
             )
             .insets([
-                Inset::Zoom(ViewMode::Triangles, zoom, "TRIANGLES, ZOOM 25X"),
-                Inset::Zoom(ViewMode::Wireframe, zoom, "WIREFRAME, ZOOM 25X"),
-                Inset::Errors,
+                Inset::Zoom(ViewMode::Triangles, zoom, "TRIANGLES 25X"),
+                Inset::Zoom(ViewMode::Wireframe, zoom, "WIREFRAME 25X"),
+                Inset::View(ViewMode::Normals),
             ])
         })
         .collect();
@@ -345,65 +475,44 @@ fn dense() -> DynResult<Demo> {
     })
 }
 
-/// A spiral galaxy of `n` separate cubes, each its own body and pick target.
-fn galaxy(n: u32) -> Model {
-    let mut b = Builder::default();
-    let mut seed = 0x2545_f491_u64 ^ u64::from(n);
-    let core = [255, 176, 60];
-    let arm = [50, 100, 230];
-    let rim = [120, 50, 200];
-    for i in 0..n {
-        let (p, color) = if unit(&mut seed) < 0.18 {
-            // The bulge.
-            let p = Vec3::new(
-                gauss(&mut seed) * 7.0,
-                gauss(&mut seed) * 7.0,
-                gauss(&mut seed) * 3.0,
-            );
-            (p, mix(core, [255, 120, 40], unit(&mut seed)))
-        } else {
-            // Two logarithmic spiral arms.
-            let t = unit(&mut seed);
-            let r = 6.0 + 54.0 * t.powf(0.8);
-            let branch = f64::from(i % 2) * std::f64::consts::PI;
-            let angle = branch + 2.2 * r.ln() + gauss(&mut seed) * (0.28 - 0.12 * t);
-            let spread = gauss(&mut seed) * (1.5 + 2.0 * t);
-            let p = Vec3::new(
-                (r + spread) * angle.cos(),
-                (r + spread) * angle.sin(),
-                gauss(&mut seed) * (1.6 - 1.1 * t),
-            );
-            let color = if unit(&mut seed) < 0.04 {
-                [235, 50, 130] // star-forming regions
-            } else {
-                mix(arm, rim, t)
-            };
-            (p, mix(core, color, (r / 14.0).min(1.0)))
-        };
-        let size = 0.25 + 0.35 * unit(&mut seed);
-        b.solid_cube(
-            p - Vec3::new(size / 2.0, size / 2.0, size / 2.0),
-            Vec3::new(size, size, size),
-            i,
-        );
-        b.color(i, color);
-    }
-    b.finish()
-}
-
+/// A city of separate buildings, each its own body and pick target, lit by baked
+/// ray-traced sun shadows and ambient occlusion.
 fn bodies() -> DynResult<Demo> {
-    let camera = Camera::framing(Vec3::ZERO, 58.0, Vec3::new(0.35, -1.0, 0.75))?;
+    // Low across downtown, so near blocks are large and far ones crowd the horizon.
+    let near = look(
+        Vec3::new(-150.0, -190.0, 70.0),
+        Vec3::new(10.0, 10.0, 0.0),
+        5.0,
+        2000.0,
+    );
+    let far = look(
+        Vec3::new(-330.0, -420.0, 120.0),
+        Vec3::new(20.0, 20.0, 0.0),
+        10.0,
+        4000.0,
+    );
+    let views = [
+        Inset::View(ViewMode::Faces),
+        Inset::View(ViewMode::Lighting),
+        Inset::PathTraced,
+    ];
     Ok(Demo::of(vec![
-        Case::new("spiral galaxy of 128,000 separate bodies", camera, || {
-            galaxy(128_000)
-        }),
-        Case::new("spiral galaxy of 512,000 separate bodies", camera, || {
-            galaxy(512_000)
-        }),
+        Case::new("city of 14,400 buildings, baked light", near, || {
+            scenes::city(120, 1.0, Vec3::ZERO, 0)
+        })
+        .lit(SUN)
+        .no_edges()
+        .insets(views),
+        Case::new("city of 129,600 buildings, baked light", far, || {
+            scenes::city(360, 1.0, Vec3::ZERO, 0)
+        })
+        .lit(SUN)
+        .no_edges()
+        .insets(views),
     ]))
 }
 
-/// A bolt on a workbench 60 mm from the eye, and a factory 300 m away.
+/// A bolt on a workbench 60 mm from the eye, a factory 300 m away, and a city 3 km away.
 fn workshop() -> Model {
     let mut b = Builder::default();
     b.colored_cube(
@@ -491,6 +600,13 @@ fn workshop() -> Model {
         [204, 198, 186],
     );
     b.color(27, [40, 72, 124]);
+    // A city 3 km away, its blocks 4 m apart, standing on the same floor.
+    b.append(scenes::city(
+        60,
+        1000.0,
+        Vec3::new(700_000.0, 3_000_000.0, -899.0),
+        100,
+    ));
     b.finish()
 }
 
@@ -522,30 +638,35 @@ fn depth() -> DynResult<Demo> {
     let views = [
         Inset::View(ViewMode::Depth),
         Inset::View(ViewMode::Faces),
-        Inset::Errors,
+        Inset::PathTraced,
     ];
     Ok(Demo::of(vec![
         Case::new(
-            "bolt at 60 mm, factory at 300 m, near plane 0.01 mm",
-            look(eye, target, 0.01, 4.0e6),
+            "bolt at 60 mm, factory at 300 m, city at 3 km, near plane 0.01 mm",
+            look(eye, target, 0.01, 1.0e7),
             workshop,
         )
+        .lit(SUN)
+        .no_edges()
         .insets(views),
         Case::new(
             "same scene, near plane 20 mm",
-            look(eye, target, 20.0, 4.0e6),
+            look(eye, target, 20.0, 1.0e7),
             workshop,
         )
+        .lit(SUN)
+        .no_edges()
         .insets(views),
         Case::new(
             "0.2 mm cubes 1 km from the origin",
             Camera::framing(Vec3::new(1.0e6, 0.0, 0.0), 1.2, Vec3::new(1.0, -1.0, 0.8))?,
             far_part,
         )
+        .lit(SUN)
         .insets([
             Inset::View(ViewMode::Faces),
             Inset::View(ViewMode::Wireframe),
-            Inset::Errors,
+            Inset::PathTraced,
         ]),
     ]))
 }
@@ -630,139 +751,60 @@ fn zfight() -> DynResult<Demo> {
     let views = [
         Inset::View(ViewMode::Faces),
         Inset::View(ViewMode::Triangles),
-        Inset::Errors,
+        Inset::View(ViewMode::Lighting),
     ];
+    let case = |title: &str, gap: f64, same: bool, label: bool| {
+        Case::new(title, camera, move || assembly(gap, same, label))
+            .lit(SUN)
+            .insets(views)
+    };
     Ok(Demo::of(vec![
-        Case::new("flush faces with the same triangles", camera, || {
-            assembly(0.0, true, false)
-        })
-        .insets(views),
-        Case::new(
+        case("flush faces with the same triangles", 0.0, true, false),
+        case(
             "two overlapping bodies, tops and fronts flush",
-            camera,
-            || assembly(0.0, false, false),
-        )
-        .insets(views),
-        Case::new("a label 0.001 mm above a face", camera, || {
-            assembly(1e-3, false, true)
-        })
-        .insets(views),
-        Case::new("a label 0.00001 mm above a face", camera, || {
-            assembly(1e-5, false, true)
-        })
-        .insets(views),
+            0.0,
+            false,
+            false,
+        ),
+        case("a label 0.001 mm above a face", 1e-3, false, true),
+        case("a label 0.00001 mm above a face", 1e-5, false, true),
     ]))
 }
 
+/// Sea urchins: a ball of hair-thin spikes, each a sliver tens of thousands of times
+/// longer than it is thick, lit by baked ray-traced light. The larger one hides 30,000
+/// zero-area triangles among its spikes.
 fn slivers() -> DynResult<Demo> {
-    // A starburst of 200,000 fan triangles: 50 mm long, 1.6 micrometres wide at the rim.
-    let fan = || {
-        let mut b = Builder::default();
-        let n = 200_000u32;
-        let centre = b.vertex(Vec3::ZERO, Vec3::Z);
-        let rim: Vec<u32> = (0..n)
-            .map(|i| {
-                let a = std::f64::consts::TAU * f64::from(i) / f64::from(n);
-                b.vertex(Vec3::new(50.0 * a.cos(), 50.0 * a.sin(), 0.0), Vec3::Z)
-            })
-            .collect();
-        for i in 0..n {
-            let sector = i * 24 / n;
-            b.tri(
-                [centre, rim[i as usize], rim[((i + 1) % n) as usize]],
-                sector,
-            );
-        }
-        for s in 0..24 {
-            let value = if s % 2 == 0 { 0.95 } else { 0.8 };
-            b.color(s, hsv(f64::from(s) / 24.0, 0.7, value));
-        }
-        b.finish()
-    };
-    // A 100 x 60 mm sheet of 600,000 needles, 0.0002 mm wide: aspect ratio 500,000.
-    let needles = || {
-        let mut b = Builder::default();
-        let strips = 300_000u32;
-        let mut left = b.vertex(Vec3::new(-50.0, -30.0, 0.0), Vec3::Z);
-        let mut right = b.vertex(Vec3::new(50.0, -30.0, 0.0), Vec3::Z);
-        for i in 1..=strips {
-            let y = -30.0 + 60.0 * f64::from(i) / f64::from(strips);
-            let l = b.vertex(Vec3::new(-50.0, y, 0.0), Vec3::Z);
-            let r = b.vertex(Vec3::new(50.0, y, 0.0), Vec3::Z);
-            let face = (i - 1) * 12 / strips;
-            b.tri([left, right, r], face);
-            b.tri([left, r, l], face);
-            (left, right) = (l, r);
-        }
-        for f in 0..12 {
-            b.color(f, hsv(0.55 + f64::from(f) / 30.0, 0.65, 0.9));
-        }
-        b.finish()
-    };
-    // A plate behind 30,000 zero-area triangles (faces 1 and 2, bright red and yellow) that
-    // must never show.
-    let degenerate = || {
-        let mut b = Builder::default();
-        b.grid(
-            Vec3::new(-50.0, -50.0, 0.0),
-            Vec3::new(100.0, 0.0, 0.0),
-            Vec3::new(0.0, 100.0, 0.0),
-            (4, 4),
-            Vec3::Z,
-            false,
-            |_, _| 0,
-        );
-        b.color(0, [60, 66, 80]);
-        b.color(1, [255, 40, 40]);
-        b.color(2, [255, 230, 0]);
-        let mut seed = 7u64;
-        for i in 0..10_000u32 {
-            let p = Vec3::new(
-                100.0 * unit(&mut seed) - 50.0,
-                100.0 * unit(&mut seed) - 50.0,
-                5.0,
-            );
-            let d = Vec3::new(unit(&mut seed) - 0.5, unit(&mut seed) - 0.5, 0.0) * 20.0;
-            let v0 = b.vertex(p, Vec3::Z);
-            let v1 = b.vertex(p + d, Vec3::Z);
-            let v2 = b.vertex(p + d * 2.0, Vec3::Z);
-            b.tri([v0, v1, v2], 1); // collinear
-            b.tri([v0, v0, v1], 1); // repeated index
-            let same = b.vertex(p, Vec3::Z);
-            b.tri([v0, same, same], 1 + i % 2); // three equal points
-        }
-        b.finish()
-    };
-    let camera = Camera::framing(Vec3::ZERO, 55.0, Vec3::new(0.6, -0.8, 1.2))?;
-    let centre = Camera {
-        fov_y: Camera::DEFAULT_FOV_Y / 40.0,
+    let camera = Camera::framing(Vec3::ZERO, 42.0, Vec3::new(0.7, -1.0, 0.6))?;
+    let zoom = Camera {
+        target: Vec3::new(9.0, -14.0, 8.0),
+        fov_y: Camera::DEFAULT_FOV_Y / 10.0,
         ..camera
     };
-    let mut zero_area = Case::new(
-        "plate behind 30,000 zero-area triangles",
-        camera,
-        degenerate,
-    )
-    .insets([
-        Inset::View(ViewMode::Faces),
+    let views = [
+        Inset::View(ViewMode::Triangles),
+        Inset::Wired(ViewMode::Lighting, zoom, "WIRE OVER LIGHT 10X"),
         Inset::View(ViewMode::Overdraw),
-        Inset::Errors,
-    ]);
-    zero_area.forbidden = vec![1, 2];
+    ];
+    let mut hidden = Case::new(
+        "urchin of 100,000 spikes and 30,000 zero-area triangles",
+        camera,
+        || scenes::urchin(100_000, 30_000),
+    )
+    .lit(SUN)
+    .no_edges()
+    .insets(views);
+    hidden.forbidden = vec![100_001];
     Ok(Demo {
         extra: Some(invalid_input),
         ..Demo::of(vec![
-            Case::new("starburst of 200,000 slivers", camera, fan).insets([
-                Inset::View(ViewMode::Triangles),
-                Inset::View(ViewMode::Overdraw),
-                Inset::Errors,
-            ]),
-            Case::new("sheet of 600,000 needles", camera, needles).insets([
-                Inset::View(ViewMode::Triangles),
-                Inset::Zoom(ViewMode::Wireframe, centre, "WIREFRAME, ZOOM 40X"),
-                Inset::Errors,
-            ]),
-            zero_area,
+            Case::new("urchin of 20,000 spikes", camera, || {
+                scenes::urchin(20_000, 0)
+            })
+            .lit(SUN)
+            .no_edges()
+            .insets(views),
+            hidden,
         ])
     })
 }
@@ -845,129 +887,38 @@ fn invalid_input(renderer: &Renderer) -> DynResult<Vec<Check>> {
     Ok(checks)
 }
 
-/// An open-topped box with walls `t` thick: blue outside, red inside, yellow along the rim.
-fn enclosure(t: f64) -> Model {
-    let mut b = Builder::default();
-    let s = 40.0;
-    let quad = |b: &mut Builder, c: [[f64; 3]; 4], n: Vec3, f: u32| {
-        b.quad(c.map(|[x, y, z]| Vec3::new(x, y, z)), n, f);
-    };
-    let (lo, hi) = (t, s - t);
-    // Outside: four walls and the bottom.
-    quad(
-        &mut b,
-        [[0., 0., 0.], [0., s, 0.], [0., s, s], [0., 0., s]],
-        -Vec3::X,
-        0,
-    );
-    quad(
-        &mut b,
-        [[s, 0., 0.], [s, 0., s], [s, s, s], [s, s, 0.]],
-        Vec3::X,
-        1,
-    );
-    quad(
-        &mut b,
-        [[0., 0., 0.], [0., 0., s], [s, 0., s], [s, 0., 0.]],
-        -Vec3::Y,
-        2,
-    );
-    quad(
-        &mut b,
-        [[0., s, 0.], [s, s, 0.], [s, s, s], [0., s, s]],
-        Vec3::Y,
-        3,
-    );
-    quad(
-        &mut b,
-        [[0., 0., 0.], [s, 0., 0.], [s, s, 0.], [0., s, 0.]],
-        -Vec3::Z,
-        4,
-    );
-    // Inside: four walls and the floor, facing in.
-    quad(
-        &mut b,
-        [[lo, lo, lo], [lo, lo, s], [lo, hi, s], [lo, hi, lo]],
-        Vec3::X,
-        5,
-    );
-    quad(
-        &mut b,
-        [[hi, lo, lo], [hi, hi, lo], [hi, hi, s], [hi, lo, s]],
-        -Vec3::X,
-        6,
-    );
-    quad(
-        &mut b,
-        [[lo, lo, lo], [hi, lo, lo], [hi, lo, s], [lo, lo, s]],
-        Vec3::Y,
-        7,
-    );
-    quad(
-        &mut b,
-        [[lo, hi, lo], [lo, hi, s], [hi, hi, s], [hi, hi, lo]],
-        -Vec3::Y,
-        8,
-    );
-    quad(
-        &mut b,
-        [[lo, lo, lo], [lo, hi, lo], [hi, hi, lo], [hi, lo, lo]],
-        Vec3::Z,
-        9,
-    );
-    // The rim: four strips `t` wide around the top.
-    quad(
-        &mut b,
-        [[0., 0., s], [s, 0., s], [hi, lo, s], [lo, lo, s]],
-        Vec3::Z,
-        10,
-    );
-    quad(
-        &mut b,
-        [[s, 0., s], [s, s, s], [hi, hi, s], [hi, lo, s]],
-        Vec3::Z,
-        10,
-    );
-    quad(
-        &mut b,
-        [[s, s, s], [0., s, s], [lo, hi, s], [hi, hi, s]],
-        Vec3::Z,
-        10,
-    );
-    quad(
-        &mut b,
-        [[0., s, s], [0., 0., s], [lo, lo, s], [lo, hi, s]],
-        Vec3::Z,
-        10,
-    );
-    for f in 0..5 {
-        b.color(f, [70, 125, 215]);
-    }
-    for f in 5..10 {
-        b.color(f, [225, 72, 60]);
-    }
-    b.color(10, [245, 200, 60]);
-    b.finish()
-}
-
+/// A finned heat sink, fins down to a tenth of a micrometre thick, lit by baked ray-traced
+/// light. Each fin's back side showing through its front is a wrong pick.
 fn thin() -> DynResult<Demo> {
-    let framed = Camera::framing(Vec3::new(20.0, 20.0, 20.0), 36.0, Vec3::new(1.0, -1.4, 1.2))?;
+    let framed = Camera::framing(
+        Vec3::new(31.0, 20.0, 13.0),
+        42.0,
+        Vec3::new(0.75, -1.0, 0.7),
+    )?;
     let loose = Camera {
         near: 0.1,
         far: 1.0e5,
         ..framed
     };
+    let views = [
+        Inset::View(ViewMode::Faces),
+        Inset::View(ViewMode::Lighting),
+        Inset::View(ViewMode::Depth),
+    ];
+    let case = |title: &str, camera: Camera, t: f64| {
+        Case::new(title, camera, move || scenes::heatsink(t))
+            .lit(SUN)
+            .insets(views)
+    };
     Ok(Demo::of(vec![
-        Case::new("walls 1 mm, clip planes fitted", framed, || enclosure(1.0)),
-        Case::new("walls 0.01 mm, clip planes fitted", framed, || {
-            enclosure(0.01)
-        }),
-        Case::new("walls 0.0001 mm, clip planes fitted", framed, || {
-            enclosure(1e-4)
-        }),
-        Case::new("walls 0.01 mm, clip planes 0.1 mm to 100 m", loose, || {
-            enclosure(0.01)
-        }),
+        case("fins 1 mm thick, clip planes fitted", framed, 1.0),
+        case("fins 0.01 mm thick, clip planes fitted", framed, 0.01),
+        case("fins 0.0001 mm thick, clip planes fitted", framed, 1e-4),
+        case(
+            "fins 0.01 mm thick, clip planes 0.1 mm to 100 m",
+            loose,
+            0.01,
+        ),
     ]))
 }
 
@@ -1060,7 +1011,11 @@ fn picking() -> DynResult<Demo> {
         }
         b.finish()
     };
-    let views = [Inset::Picks, Inset::View(ViewMode::Faces), Inset::Errors];
+    let views = [
+        Inset::Picks,
+        Inset::View(ViewMode::Faces),
+        Inset::View(ViewMode::Triangles),
+    ];
     // Every pixel of the mosaics is a face boundary, so they are shown unlit, without edges.
     let unlit = |case: Case| Case {
         main: ViewMode::Unlit,

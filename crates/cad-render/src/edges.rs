@@ -1,4 +1,4 @@
-use cad_kernel::Mesh;
+use cad_kernel::{FaceIndex, Mesh};
 
 /// The boundary edges of every face in a mesh, as pairs of vertex indices.
 ///
@@ -9,10 +9,14 @@ use cad_kernel::Mesh;
 /// The result is sorted, so it does not depend on triangle order.
 #[must_use]
 pub fn feature_edges(mesh: &Mesh) -> Vec<[u32; 2]> {
-    let mut sides: Vec<(u32, u32, u32)> = mesh
-        .triangles
-        .iter()
-        .zip(&mesh.triangle_faces)
+    boundary_edges(mesh.triangles.iter().zip(&mesh.triangle_faces))
+}
+
+/// [`feature_edges`] of some of a mesh's triangles, given with their faces.
+pub(crate) fn boundary_edges<'a>(
+    triangles: impl Iterator<Item = (&'a [u32; 3], &'a FaceIndex)>,
+) -> Vec<[u32; 2]> {
+    let mut sides: Vec<(u32, u32, u32)> = triangles
         .flat_map(|(&[a, b, c], face)| {
             [(a, b), (b, c), (c, a)].map(|(p, q)| (face.0, p.min(q), p.max(q)))
         })

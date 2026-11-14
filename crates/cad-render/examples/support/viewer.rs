@@ -1,14 +1,16 @@
-//! An interactive window for the torture cases.
+//! An interactive window for the torture cases, in the manner of an engine viewport.
 //!
-//! Drag with the left button to orbit, scroll to zoom, click to print the face under the
-//! cursor, and press the left and right arrow keys to change case. The title shows the case,
-//! its triangle count, and the frame time.
+//! The model turns slowly; space pauses it. Keys 1 to 8 switch view mode (lit, unlit,
+//! wireframe, triangles, faces, world normal, scene depth, overdraw). Drag with the left
+//! button to orbit, scroll to zoom, click to print the face under the cursor, and press the
+//! left and right arrow keys to change case. The title shows the case, the view mode, the
+//! triangle count, and the frame time.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use cad_math::Vec3;
-use cad_render::{Camera, Renderer, Scene, Targets, wgpu};
+use cad_render::{Camera, Renderer, Scene, Targets, ViewMode, wgpu};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -25,7 +27,7 @@ use crate::verify::DynResult;
 /// Window, adapter, and render errors.
 pub fn run(demo: &str, cases: Vec<Case>) -> DynResult<()> {
     println!(
-        "{demo}: drag to orbit, scroll to zoom, click to pick, left and right arrows to change case"
+        "{demo}: 1-8 view modes, space pauses the turntable, drag to orbit, scroll to zoom, click to pick, arrows change case"
     );
     let mut app = App {
         demo: demo.to_string(),
@@ -35,6 +37,8 @@ pub fn run(demo: &str, cases: Vec<Case>) -> DynResult<()> {
         cursor: (0.0, 0.0),
         pressed_at: None,
         orbit: Orbit::default(),
+        spinning: true,
+        last_frame: Instant::now(),
         frames: 0,
         window_started: Instant::now(),
         frame_ms: 0.0,
@@ -149,12 +153,14 @@ impl View {
         self.scene = Err("loading".into());
         println!("building {} ...", case.title);
         let started = Instant::now();
-        let mesh = (case.build)();
+        let (mesh, colors) = (case.build)();
         self.triangles = mesh.triangles.len();
         let built = started.elapsed();
         let started = Instant::now();
-        self.scene = crate::verify::guarded(&self.renderer, || Ok(self.renderer.upload(&mesh)?))
-            .map_err(|e| e.to_string());
+        self.scene = crate::verify::guarded(&self.renderer, || {
+            Ok(self.renderer.upload_with_colors(&mesh, &colors)?)
+        })
+        .map_err(|e| e.to_string());
         match &self.scene {
             Ok(_) => println!(
                 "  {} triangles: built in {:.0} ms, uploaded in {:.0} ms",
@@ -211,6 +217,9 @@ struct App {
     /// Where the left button went down, to tell a click from a drag.
     pressed_at: Option<(f64, f64)>,
     orbit: Orbit,
+    /// Whether the turntable is turning.
+    spinning: bool,
+    last_frame: Instant,
     frames: u32,
     window_started: Instant,
     frame_ms: f64,
@@ -245,11 +254,12 @@ impl App {
             Err(e) => format!("FAILED: {e}"),
         };
         view.window.set_title(&format!(
-            "torture {} [{}/{}] {} | {status}",
+            "torture {} [{}/{}] {} | {} | {status}",
             self.demo,
             self.index + 1,
             self.cases.len(),
-            case.title
+            case.title,
+            view.renderer.view_mode().name()
         ));
     }
 
@@ -269,6 +279,18 @@ impl App {
                     Key::Named(NamedKey::ArrowRight) => self.switch(1),
                     Key::Named(NamedKey::ArrowLeft) => self.switch(-1),
                     Key::Named(NamedKey::Escape) => event_loop.exit(),
+                    Key::Named(NamedKey::Space) => self.spinning = !self.spinning,
+                    Key::Character(c) => {
+                        let mode = c
+                            .parse::<usize>()
+                            .ok()
+                            .and_then(|n| ViewMode::ALL.get(n.wrapping_sub(1)));
+                        if let (Some(mode), Some(view)) = (mode, self.view.as_ref()) {
+                            view.renderer.set_view_mode(*mode);
+                            println!("view mode: {}", mode.name());
+                            self.update_title();
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -306,6 +328,12 @@ impl App {
                 }
             },
             WindowEvent::RedrawRequested => {
+                let elapsed = self.last_frame.elapsed().as_secs_f64();
+                self.last_frame = Instant::now();
+                if self.spinning {
+                    // One turn every 40 seconds.
+                    self.orbit.yaw += elapsed * std::f64::consts::TAU / 40.0;
+                }
                 let camera = self.camera();
                 let started = Instant::now();
                 let drawn = match self.view.as_mut() {

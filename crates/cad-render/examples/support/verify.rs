@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use cad_kernel::Mesh;
 use cad_math::Vec3;
-use cad_render::{Camera, Frame, Image, OFFSCREEN_FORMAT, Renderer, Scene, wgpu};
+use cad_render::{Camera, Frame, Image, OFFSCREEN_FORMAT, Renderer, Scene, ViewMode, wgpu};
 
 /// Errors from the examples are reported, not unwrapped.
 pub type DynResult<T> = Result<T, Box<dyn std::error::Error>>;
@@ -449,18 +449,16 @@ pub fn picture_checks(s: &Score) -> Vec<Check> {
 
 /// Timings and consistency of the GPU path for one scene.
 pub struct GpuRun {
+    /// The uploaded mesh, for further views.
+    pub scene: Scene,
     /// Uploading the mesh, including edge extraction.
     pub upload: Duration,
     /// Median of draw, submit, and wait.
     pub frame: Duration,
     /// One full offscreen render with colour and ID readback.
     pub render: Duration,
-    /// The frame from that render.
+    /// The frame from that render, in the main view mode.
     pub result: Frame,
-    /// Triangles drawn.
-    pub triangles: u32,
-    /// Edge segments drawn.
-    pub edges: u32,
     /// Consistency checks: determinism and single-pixel picking.
     pub checks: Vec<Check>,
 }
@@ -469,7 +467,8 @@ fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
-/// Uploads a mesh, times frames, renders it offscreen twice, and picks sample pixels.
+/// Uploads a mesh, times frames, renders it offscreen twice in the main view mode, and picks
+/// sample pixels.
 ///
 /// # Errors
 ///
@@ -477,12 +476,14 @@ fn ms(d: Duration) -> f64 {
 pub fn run_gpu(
     renderer: &Renderer,
     mesh: &Mesh,
+    colors: &[[u8; 3]],
     camera: &Camera,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
+    main: ViewMode,
 ) -> DynResult<GpuRun> {
+    renderer.set_view_mode(main);
     let started = Instant::now();
-    let scene = renderer.upload(mesh)?;
+    let scene = renderer.upload_with_colors(mesh, colors)?;
     renderer.finish()?;
     let upload = started.elapsed();
 
@@ -533,12 +534,11 @@ pub fn run_gpu(
     ));
 
     Ok(GpuRun {
+        scene,
         upload,
         frame,
         render,
         result,
-        triangles: scene.triangle_count(),
-        edges: scene.edge_count(),
         checks,
     })
 }
@@ -590,7 +590,7 @@ fn time_frames(
 pub struct CaseOutcome {
     /// Every check, in order.
     pub checks: Vec<Check>,
-    /// Shaded render and error map side by side.
+    /// The case's row: the lit view with stats, and a column of technical views.
     pub panel: Image,
 }
 
@@ -628,38 +628,71 @@ pub fn guarded<T>(renderer: &Renderer, work: impl FnOnce() -> DynResult<T>) -> D
     }
 }
 
+/// Size of the main, lit view of a case. Checks run at this size.
+pub const MAIN: (u32, u32) = (960, 600);
+/// Size of each technical view beside it: three stack to the main view's height.
+pub const INSET: (u32, u32) = (320, 200);
+
+/// A technical view beside the main one.
+#[derive(Clone, Copy)]
+pub enum Inset {
+    /// The scene in a view mode, from the case camera.
+    View(ViewMode),
+    /// The scene in a view mode from another camera, with a label.
+    Zoom(ViewMode, Camera, &'static str),
+    /// Where the GPU disagrees with the double-precision reference.
+    Errors,
+    /// The picture rebuilt from picking alone: each pixel coloured by the face it picks.
+    Picks,
+}
+
+/// One case to run.
+pub struct Shot<'a> {
+    /// Demo name, for the stats overlay.
+    pub demo: &'a str,
+    /// What the case is.
+    pub title: &'a str,
+    /// The mesh.
+    pub mesh: &'a Mesh,
+    /// Face colours, as for [`Renderer::upload_with_colors`].
+    pub colors: &'a [[u8; 3]],
+    /// The camera, including the clip planes under test.
+    pub camera: &'a Camera,
+    /// Faces that must never reach the ID buffer.
+    pub forbidden: &'a [u32],
+    /// The view mode of the main view, normally [`ViewMode::Lit`].
+    pub main: ViewMode,
+    /// Three technical views.
+    pub insets: [Inset; 3],
+}
+
 /// Runs one case end to end and prints its report. A mesh the GPU cannot take is a failed
 /// check, not an error, so the remaining cases still run.
 ///
-/// `forbidden` lists faces that must never reach the ID buffer.
-///
 /// # Errors
 ///
-/// Reference errors for meshes that refer to missing vertices.
-pub fn run_case(
-    renderer: &Renderer,
-    title: &str,
-    mesh: &Mesh,
-    camera: &Camera,
-    size: (u32, u32),
-    forbidden: &[u32],
-) -> DynResult<CaseOutcome> {
-    let (width, height) = size;
+/// Reference errors for meshes that refer to missing vertices, and render errors in the
+/// technical views.
+pub fn run_case(renderer: &Renderer, shot: &Shot) -> DynResult<CaseOutcome> {
+    let (width, height) = MAIN;
+    let mesh = shot.mesh;
     let faces = {
         let mut f: Vec<u32> = mesh.triangle_faces.iter().map(|f| f.0).collect();
         f.sort_unstable();
         f.dedup();
         f.len()
     };
-    println!("  case: {title}");
+    println!("  case: {}", shot.title);
     println!(
         "    {} triangles, {} faces, {width} x {height} px, near {} mm, far {} mm",
         mesh.triangles.len(),
         faces,
-        camera.near,
-        camera.far
+        shot.camera.near,
+        shot.camera.far
     );
-    let gpu = match guarded(renderer, || run_gpu(renderer, mesh, camera, width, height)) {
+    let gpu = match guarded(renderer, || {
+        run_gpu(renderer, mesh, shot.colors, shot.camera, MAIN, shot.main)
+    }) {
         Ok(gpu) => gpu,
         Err(e) => {
             let checks = vec![Check::new(
@@ -668,20 +701,19 @@ pub fn run_case(
                 e.to_string(),
             )];
             print_checks(&checks);
-            let mut panel = blank(3 * width + 2 * GUTTER, height + BAR);
-            fill(&mut panel, 0, 0, u32::MAX, BAR - 2, FAIL_BAR);
-            fill(&mut panel, 0, BAR, u32::MAX, height, [235, 210, 210, 255]);
+            let mut panel = frame_for(shot, false);
+            crate::text::label(&mut panel, 20, 20, &format!("FAILED: {e}"));
             return Ok(CaseOutcome { checks, panel });
         }
     };
     let started = Instant::now();
-    let reference = reference(mesh, camera, width, height)?;
+    let reference = reference(mesh, shot.camera, width, height)?;
     let reference_time = started.elapsed();
     let s = score(&gpu.result, &reference);
 
     println!(
         "    {} edge segments; upload {:.1} ms   frame median {:.2} ms   render + readback {:.1} ms   f64 reference {:.0} ms",
-        gpu.edges,
+        gpu.scene.edge_count(),
         ms(gpu.upload),
         ms(gpu.frame),
         ms(gpu.render),
@@ -692,12 +724,15 @@ pub fn run_case(
         s.covered_gpu, s.covered_ref, s.ties, s.subpixel
     );
     let mut checks = picture_checks(&s);
-    if !forbidden.is_empty() {
+    if !shot.forbidden.is_empty() {
         let shown = gpu
             .result
             .ids
             .iter()
-            .filter(|id| id.checked_sub(1).is_some_and(|f| forbidden.contains(&f)))
+            .filter(|id| {
+                id.checked_sub(1)
+                    .is_some_and(|f| shot.forbidden.contains(&f))
+            })
             .count();
         checks.push(Check::new(
             "zero-area faces never reach the ID buffer",
@@ -705,10 +740,206 @@ pub fn run_case(
             format!("{shown} pixels pick a face with no area"),
         ));
     }
-    checks.extend(gpu.checks);
+    checks.extend(
+        gpu.checks
+            .iter()
+            .map(|c| Check::new(&c.name, c.passed, &c.detail)),
+    );
     print_checks(&checks);
-    let panel = panel(&gpu.result, &s, checks.iter().all(|c| c.passed));
+
+    let passed = checks.iter().all(|c| c.passed);
+    let failed = checks.iter().filter(|c| !c.passed).count();
+    let mut panel = frame_for(shot, passed);
+    let mut main = gpu.result.image.clone();
+    let wrong = s.interior_wrong + s.boundary_wrong + s.speckle;
+    let lines = [
+        format!("{} / {}", shot.demo, shot.title),
+        format!(
+            "TRIANGLES {}   FACES {}",
+            crate::text::thousands(mesh.triangles.len() as u64),
+            crate::text::thousands(faces as u64)
+        ),
+        format!(
+            "FRAME {:.1} MS   UPLOAD {}",
+            ms(gpu.frame),
+            if gpu.upload.as_secs_f64() >= 1.0 {
+                format!("{:.1} S", gpu.upload.as_secs_f64())
+            } else {
+                format!("{:.0} MS", ms(gpu.upload))
+            }
+        ),
+        format!(
+            "PICKING {} WRONG OF {} PX",
+            crate::text::thousands(wrong as u64),
+            crate::text::thousands(s.covered_ref as u64)
+        ),
+    ];
+    stats(&mut main, &lines, passed, failed);
+    blit(&mut panel, &main, MARGIN, MARGIN);
+
+    for (i, inset) in shot.insets.iter().enumerate() {
+        let (image, name) = inset_image(renderer, &gpu, shot, &s, *inset)?;
+        let y = MARGIN + i as u32 * INSET.1;
+        let x = MARGIN + width + MARGIN;
+        let mut image = image;
+        crate::text::label(&mut image, 6, 6, name);
+        blit(&mut panel, &image, x, y);
+        // Hairline between the stacked views.
+        if i > 0 {
+            fill(&mut panel, x, y, INSET.0, 1, FRAME);
+        }
+    }
+    renderer.set_view_mode(ViewMode::Lit);
     Ok(CaseOutcome { checks, panel })
+}
+
+fn inset_image(
+    renderer: &Renderer,
+    gpu: &GpuRun,
+    shot: &Shot,
+    s: &Score,
+    inset: Inset,
+) -> DynResult<(Image, &'static str)> {
+    let (w, h) = INSET;
+    Ok(match inset {
+        Inset::View(mode) => {
+            renderer.set_view_mode(mode);
+            let frame = renderer.render(&gpu.scene, shot.camera, w, h)?;
+            (frame.image, label_of(mode))
+        }
+        Inset::Zoom(mode, camera, name) => {
+            renderer.set_view_mode(mode);
+            (renderer.render(&gpu.scene, &camera, w, h)?.image, name)
+        }
+        Inset::Errors => (error_map(&gpu.result.image, s), "ERRORS VS F64 REFERENCE"),
+        Inset::Picks => {
+            let source = &gpu.result;
+            let mut rebuilt = blank(source.image.width, source.image.height, [2, 2, 3, 255]);
+            for (px, id) in rebuilt.rgba.chunks_exact_mut(4).zip(&source.ids) {
+                if let Some(face) = id.checked_sub(1) {
+                    let [r, g, b] = shot
+                        .colors
+                        .get(face as usize)
+                        .copied()
+                        .unwrap_or(cad_render::DEFAULT_FACE_COLOR);
+                    px.copy_from_slice(&[r, g, b, 255]);
+                }
+            }
+            (downscale(&rebuilt, w, h), "REBUILT FROM PICKS")
+        }
+    })
+}
+
+fn label_of(mode: ViewMode) -> &'static str {
+    match mode {
+        ViewMode::Lit => "LIT",
+        ViewMode::Unlit => "UNLIT",
+        ViewMode::Wireframe => "WIREFRAME",
+        ViewMode::Triangles => "TRIANGLES",
+        ViewMode::Faces => "FACES (PICK BUFFER)",
+        ViewMode::Normals => "WORLD NORMAL",
+        ViewMode::Depth => "SCENE DEPTH",
+        ViewMode::Overdraw => "OVERDRAW",
+    }
+}
+
+/// Stats in the corner of the main view, in the manner of an engine's `stat unit` overlay.
+fn stats(image: &mut Image, lines: &[String], passed: bool, failed: usize) {
+    let scale = 2;
+    let line_h = crate::text::height(scale) + 6;
+    let widest = lines
+        .iter()
+        .map(|l| crate::text::width(l, scale))
+        .max()
+        .unwrap_or(0)
+        .min(image.width - 24);
+    let box_h = (lines.len() as u32 + 1) * line_h + 12;
+    crate::text::shade(image, 12, 12, widest + 20, box_h, 0.72);
+    for (i, line) in lines.iter().enumerate() {
+        let color = if i == 0 {
+            [255, 255, 255, 255]
+        } else {
+            [140, 235, 140, 255]
+        };
+        let fits: String = line
+            .chars()
+            .take(((image.width - 44) / (6 * scale)) as usize)
+            .collect();
+        crate::text::draw(image, 22, 20 + i as u32 * line_h, scale, color, &fits);
+    }
+    let (verdict, color) = if passed {
+        ("PASS".to_string(), [90, 230, 110, 255])
+    } else {
+        (format!("FAIL: {failed} CHECKS"), [255, 90, 80, 255])
+    };
+    crate::text::draw(
+        image,
+        22,
+        20 + lines.len() as u32 * line_h,
+        scale,
+        color,
+        &verdict,
+    );
+}
+
+/// The lit picture washed out, with wrong pixels painted: red away from face boundaries,
+/// orange at boundaries, magenta where coincident faces speckle. Scaled to an inset, any
+/// wrong pixel in a block marks the block.
+fn error_map(image: &Image, s: &Score) -> Image {
+    let (w, h) = INSET;
+    let mut out = downscale(image, w, h);
+    for px in out.rgba.chunks_exact_mut(4) {
+        for c in &mut px[..3] {
+            *c = (u16::from(*c) / 4 + 20) as u8;
+        }
+    }
+    let (sx, sy) = (image.width / w, image.height / h);
+    for y in 0..h {
+        for x in 0..w {
+            let mut worst = 0u8;
+            for dy in 0..sy {
+                for dx in 0..sx {
+                    let k = ((y * sy + dy) * image.width + x * sx + dx) as usize;
+                    worst = worst.max(s.marks.get(k).copied().unwrap_or(0));
+                }
+            }
+            let color = match worst {
+                1 => [255, 40, 40, 255],
+                2 => [255, 150, 0, 255],
+                3 => [230, 60, 255, 255],
+                _ => continue,
+            };
+            let k = ((y * w + x) * 4) as usize;
+            out.rgba[k..k + 4].copy_from_slice(&color);
+        }
+    }
+    out
+}
+
+/// Box-filters an image down by a whole factor in each direction.
+pub fn downscale(image: &Image, w: u32, h: u32) -> Image {
+    let (sx, sy) = ((image.width / w).max(1), (image.height / h).max(1));
+    let mut out = blank(w, h, [0, 0, 0, 255]);
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = [0u32; 3];
+            for dy in 0..sy {
+                for dx in 0..sx {
+                    if let Some(p) = image.pixel(x * sx + dx, y * sy + dy) {
+                        for (total, channel) in sum.iter_mut().zip(p) {
+                            *total += u32::from(channel);
+                        }
+                    }
+                }
+            }
+            let n = sx * sy;
+            let k = ((y * w + x) * 4) as usize;
+            for (slot, total) in out.rgba[k..k + 3].iter_mut().zip(sum) {
+                *slot = (total / n) as u8;
+            }
+        }
+    }
+    out
 }
 
 /// Prints checks as PASS or FAIL lines.
@@ -719,85 +950,35 @@ pub fn print_checks(checks: &[Check]) {
     }
 }
 
-const GUTTER: u32 = 8;
-const BAR: u32 = 6;
-const PAPER: [u8; 4] = [255, 255, 255, 255];
+/// Space around and between views.
+pub const MARGIN: u32 = 6;
+/// Editor-style dark frame around views.
+pub const FRAME: [u8; 4] = [24, 25, 28, 255];
+const PASS_BAR: [u8; 4] = [60, 200, 90, 255];
+const FAIL_BAR: [u8; 4] = [230, 60, 50, 255];
 
-const PASS_BAR: [u8; 4] = [40, 160, 70, 255];
-const FAIL_BAR: [u8; 4] = [210, 30, 30, 255];
-
-/// Three images side by side under a status bar: the shaded picture, the ID buffer in false
-/// colour (one colour per face, so coincident faces that share a shade become visible), and
-/// an error map.
-///
-/// The error map is the picture washed out, with wrong pixels painted: red away from face
-/// boundaries, orange at boundaries, magenta where coincident faces speckle. Marks are grown
-/// to 3 x 3 so single pixels survive downscaling.
-pub fn panel(frame: &Frame, s: &Score, passed: bool) -> Image {
-    let image = &frame.image;
-    let (w, h) = (image.width, image.height);
-    let mut out = blank(3 * w + 2 * GUTTER, h + BAR);
-    blit(&mut out, image, 0, BAR);
-
-    let mut ids = image.clone();
-    for (px, id) in ids.rgba.chunks_exact_mut(4).zip(&frame.ids) {
-        px.copy_from_slice(&id_colour(*id));
-    }
-    blit(&mut out, &ids, w + GUTTER, BAR);
-
-    let mut map = image.clone();
-    for px in map.rgba.chunks_exact_mut(4) {
-        for c in &mut px[..3] {
-            *c = 255 - (255 - *c) / 3;
-        }
-    }
-    let (wu, hu) = (w as usize, h as usize);
-    for k in 0..wu * hu {
-        let colour = match s.marks.get(k) {
-            Some(1) => [220, 20, 20, 255],
-            Some(2) => [255, 140, 0, 255],
-            Some(3) => [200, 0, 200, 255],
-            _ => continue,
-        };
-        let (x, y) = (k % wu, k / wu);
-        for dy in y.saturating_sub(1)..(y + 2).min(hu) {
-            for dx in x.saturating_sub(1)..(x + 2).min(wu) {
-                let j = (dy * wu + dx) * 4;
-                map.rgba[j..j + 4].copy_from_slice(&colour);
-            }
-        }
-    }
-    blit(&mut out, &map, 2 * (w + GUTTER), BAR);
+/// The dark frame for one case row, with a status stripe down its left side.
+fn frame_for(shot: &Shot, passed: bool) -> Image {
+    let _ = shot;
+    let (w, h) = MAIN;
+    let mut out = blank(MARGIN * 3 + w + INSET.0, MARGIN * 2 + h, FRAME);
     fill(
         &mut out,
         0,
         0,
+        3,
         u32::MAX,
-        BAR - 2,
         if passed { PASS_BAR } else { FAIL_BAR },
     );
     out
 }
 
-/// A stable, fairly saturated colour per face; light grey for background.
-fn id_colour(id: u32) -> [u8; 4] {
-    if id == 0 {
-        return [236, 237, 240, 255];
-    }
-    let mut x = id.wrapping_mul(0x9e37_79b9);
-    x ^= x >> 15;
-    x = x.wrapping_mul(0x85eb_ca6b);
-    x ^= x >> 13;
-    let channel = |shift: u32| 60 + ((x >> shift) & 0xff) as u8 % 170;
-    [channel(0), channel(8), channel(16), 255]
-}
-
 /// An image of one colour.
-pub fn blank(width: u32, height: u32) -> Image {
+pub fn blank(width: u32, height: u32, color: [u8; 4]) -> Image {
     Image {
         width,
         height,
-        rgba: PAPER
+        rgba: color
             .iter()
             .copied()
             .cycle()
@@ -806,7 +987,8 @@ pub fn blank(width: u32, height: u32) -> Image {
     }
 }
 
-fn fill(out: &mut Image, x0: u32, y0: u32, w: u32, h: u32, colour: [u8; 4]) {
+/// Fills a rectangle, clipped to the image.
+pub fn fill(out: &mut Image, x0: u32, y0: u32, w: u32, h: u32, colour: [u8; 4]) {
     for y in y0..y0.saturating_add(h).min(out.height) {
         for x in x0..x0.saturating_add(w).min(out.width) {
             let j = (y as usize * out.width as usize + x as usize) * 4;
@@ -829,15 +1011,15 @@ pub fn blit(out: &mut Image, src: &Image, x0: u32, y0: u32) {
     }
 }
 
-/// Stacks panels vertically with a gutter between them.
+/// Stacks images vertically on the dark frame colour.
 pub fn stack(panels: &[Image]) -> Image {
     let width = panels.iter().map(|p| p.width).max().unwrap_or(1);
-    let height = panels.iter().map(|p| p.height + GUTTER).sum::<u32>().max(1);
-    let mut out = blank(width, height);
+    let height = panels.iter().map(|p| p.height).sum::<u32>().max(1);
+    let mut out = blank(width, height, FRAME);
     let mut y = 0;
     for p in panels {
         blit(&mut out, p, 0, y);
-        y += p.height + GUTTER;
+        y += p.height;
     }
     out
 }
